@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Copy corpus data into the static site
-        run: cp data/corpus.json demo/data/corpus.json
+        run: mkdir -p demo/data && cp data/corpus.json demo/data/corpus.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
