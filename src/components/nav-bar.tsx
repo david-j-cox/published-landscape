@@ -29,6 +29,9 @@ export async function NavBar() {
           <Link href="/reviewers" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
             Find a reviewer
           </Link>
+          <Link href="/submit" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
+            Place a submission
+          </Link>
         </nav>
         {user && (
           <form action={signOut} className="flex items-center gap-3">

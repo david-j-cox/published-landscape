@@ -2,13 +2,24 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import type { ArticleDetail, Cluster, MapPoint } from "@/lib/types";
+import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
+import type { ArticleDetail, Cluster, MapPoint, PendingPlacement } from "@/lib/types";
 
 const PALETTE = [
   "#6cc5ff", "#a98bff", "#5fd6a4", "#ffb454", "#ff7a9c", "#7ce0e0",
   "#c3a3ff", "#ffd166", "#8fd694", "#f4978e", "#9aa6bd",
 ];
 const colorOf = (clusterId: number) => PALETTE[clusterId % PALETTE.length];
+
+// Sentinel id for the ephemeral "place a submission" marker (src/app/(app)/submit)
+// which isn't a real article, so it can't collide with a real OpenAlex id.
+const PENDING_ID = "__pending__";
+
+type PendingMarker = {
+  point: MapPoint;
+  clusterLabel: string;
+  neighbors: PendingPlacement["neighbors"];
+};
 
 type View = { scale: number; ox: number; oy: number };
 
@@ -35,7 +46,12 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
   const [hiddenClusters, setHiddenClusters] = useState<Set<number>>(new Set());
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const [detail, setDetail] = useState<ArticleDetail | null>(null);
-  const detailLoading = Boolean(selected) && detail?.id !== selected?.id;
+  const detailLoading = Boolean(selected && selected.id !== PENDING_ID && detail?.id !== selected.id);
+  const [pending, setPending] = useState<PendingMarker | null>(null);
+  // Mirrors `pending` for the imperative canvas draw loop, which runs outside
+  // React's render cycle and can't depend on state directly (see the sync
+  // effect below, same pattern as hiddenClusters/hiddenRef).
+  const pendingRef = useRef<PendingMarker | null>(null);
 
   const viewRef = useRef<View>({ scale: 1, ox: 0, oy: 0 });
   const fitRef = useRef<View>({ scale: 1, ox: 0, oy: 0 });
@@ -121,10 +137,36 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
         }
         ctx!.globalAlpha = 1;
       });
+
+      const pending = pendingRef.current?.point;
+      if (pending) {
+        const x = sx(pending.x), y = sy(pending.y);
+        const on = hoveredRef.current?.id === PENDING_ID || selectedRef.current?.id === PENDING_ID;
+        const r = on ? 9 : 6.5;
+        ctx!.beginPath();
+        ctx!.moveTo(x, y - r);
+        ctx!.lineTo(x + r, y);
+        ctx!.lineTo(x, y + r);
+        ctx!.lineTo(x - r, y);
+        ctx!.closePath();
+        ctx!.fillStyle = "#18181b";
+        ctx!.fill();
+        ctx!.lineWidth = 2;
+        ctx!.strokeStyle = "#fbbf24";
+        ctx!.stroke();
+        ctx!.fillStyle = "#18181b";
+        ctx!.font = "700 11px Inter, sans-serif";
+        ctx!.fillText("Your submission", x, y - r - 8);
+      }
       ctx!.restore();
     }
 
     function nodeAt(px: number, py: number): MapPoint | null {
+      const pending = pendingRef.current?.point;
+      if (pending) {
+        const dist = Math.hypot(px - sx(pending.x), py - sy(pending.y));
+        if (dist < 14) return pending;
+      }
       let best: MapPoint | null = null;
       let bestD = 12;
       for (const d of points) {
@@ -250,8 +292,47 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
     canvas?.__redraw?.();
   }, [hiddenClusters]);
 
+  // One-shot: pick up a placement stashed by /submit's "View on topic map".
   useEffect(() => {
-    if (!selected) return;
+    const raw = sessionStorage.getItem(PLACEMENT_STORAGE_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(PLACEMENT_STORAGE_KEY);
+    try {
+      const parsed = JSON.parse(raw) as PendingPlacement;
+      const marker: PendingMarker = {
+        point: {
+          id: PENDING_ID,
+          x: parsed.x,
+          y: parsed.y,
+          cluster_id: parsed.clusterId,
+          journal_id: -1,
+          year: null,
+          title: parsed.title,
+          authorsShort: "Draft submission",
+        },
+        clusterLabel: parsed.clusterLabel,
+        neighbors: parsed.neighbors,
+      };
+      // One-time hydration from sessionStorage on mount, not a fetch -
+      // there's no async boundary to defer these through.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPending(marker);
+      selectedRef.current = marker.point;
+      setSelected(marker.point);
+    } catch {
+      // malformed sessionStorage entry - ignore
+    }
+  }, []);
+
+  // Mirror `pending` into the ref the imperative canvas code reads, and redraw.
+  useEffect(() => {
+    pendingRef.current = pending;
+    const canvas = canvasRef.current as (HTMLCanvasElement & { __redraw?: () => void }) | null;
+    canvas?.__redraw?.();
+  }, [pending]);
+
+  useEffect(() => {
+    if (!selected || selected.id === PENDING_ID) return;
     let cancelled = false;
     fetch(`/api/articles/${selected.id}`)
       .then((r) => r.json())
@@ -269,12 +350,14 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
     setDetail(null);
   }
 
+  // Clicking a topic solos it (hides every other topic); clicking the same
+  // one again restores all topics. Clicking a different topic while soloed
+  // switches the solo to the new one.
   function toggleCluster(id: number) {
     setHiddenClusters((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+      const isSoloed = clusters.every((c) => (c.id === id ? !prev.has(c.id) : prev.has(c.id)));
+      if (isSoloed) return new Set();
+      return new Set(clusters.map((c) => c.id).filter((cid) => cid !== id));
     });
   }
 
@@ -332,8 +415,56 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
           >
             &times;
           </button>
-          {detailLoading && <p className="text-sm text-neutral-400">Loading...</p>}
-          {detail && detail.id === selected.id && (
+          {selected.id === PENDING_ID && pending ? (
+            <>
+              <div
+                className="mb-2 w-fit rounded-full px-2 py-0.5 text-xs font-medium"
+                style={{ background: "#fbbf2422", color: "#b45309" }}
+              >
+                Draft submission &middot; {pending.clusterLabel}
+              </div>
+              <h2 className="text-lg font-semibold leading-snug">{pending.point.title}</h2>
+              <p className="mt-2 text-sm text-neutral-500">
+                Not yet published - placed based on the title/abstract submitted on the{" "}
+                <Link href="/submit" className="text-blue-600 underline dark:text-blue-400">
+                  Place a submission
+                </Link>{" "}
+                page.
+              </p>
+              <div className="mt-6">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                  Nearest existing articles
+                </div>
+                <ul className="flex flex-col gap-2">
+                  {pending.neighbors.map((n) => (
+                    <li key={n.id}>
+                      <button
+                        onClick={() => {
+                          const pt = points.find((p) => p.id === n.id);
+                          if (pt) {
+                            setHiddenClusters((prev) => (prev.has(pt.cluster_id) ? new Set() : prev));
+                            selectedRef.current = pt;
+                            setSelected(pt);
+                          }
+                        }}
+                        className="flex w-full items-start justify-between gap-2 rounded px-1 py-1 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                      >
+                        <span>
+                          {n.title} <span className="text-neutral-400">({n.year})</span>
+                        </span>
+                        <span className="shrink-0 text-xs text-neutral-400">
+                          {Math.round(n.similarity * 100)}%
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          ) : (
+            <>
+              {detailLoading && <p className="text-sm text-neutral-400">Loading...</p>}
+              {detail && detail.id === selected.id && (
             <>
               <div
                 className="mb-2 w-fit rounded-full px-2 py-0.5 text-xs font-medium"
@@ -384,6 +515,7 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
                           onClick={() => {
                             const pt = points.find((p) => p.id === r.id);
                             if (pt) {
+                              setHiddenClusters((prev) => (prev.has(pt.cluster_id) ? new Set() : prev));
                               selectedRef.current = pt;
                               setSelected(pt);
                             }
@@ -403,6 +535,8 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
                   </ul>
                 </div>
               )}
+            </>
+          )}
             </>
           )}
         </section>

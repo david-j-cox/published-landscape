@@ -75,3 +75,14 @@ export type AuthorSummary = {
   clusters: { id: number; label: string; count: number }[];
   articles: { id: string; title: string; year: number | null }[];
 };
+
+// Stashed in sessionStorage by /submit's "View on topic map" so the map can
+// render one ephemeral, not-yet-published point without a server round trip.
+export type PendingPlacement = {
+  title: string;
+  x: number;
+  y: number;
+  clusterId: number;
+  clusterLabel: string;
+  neighbors: { id: string; title: string; year: number | null; similarity: number }[];
+};

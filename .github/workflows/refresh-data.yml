@@ -1,0 +1,35 @@
+name: Refresh article corpus from OpenAlex
+
+on:
+  schedule:
+    # Every Monday 08:00 UTC. Academic publishers batch online-first
+    # articles irregularly, so weekly is frequent enough without hammering
+    # OpenAlex - see scripts/ingest_openalex.py for coverage notes.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy scipy
+      - run: python3 scripts/ingest_openalex.py
+      - run: python3 scripts/build_layout.py
+      - name: Commit updated corpus if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- data/corpus.json; then
+            git add data/corpus.json
+            git commit -m "Refresh article corpus from OpenAlex ($(date -u +%Y-%m-%d))"
+            git push
+          else
+            echo "No changes to data/corpus.json"
+          fi

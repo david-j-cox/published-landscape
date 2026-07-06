@@ -29,6 +29,7 @@ from scipy.spatial.distance import squareform
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "data" / "corpus.json"
+MODEL = ROOT / "data" / "model.json"
 K_CLUSTERS = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 SVD_DIMS = 60
 SEED = 7
@@ -78,16 +79,16 @@ def build_tfidf(docs):
             df[t] = df.get(t, 0) + 1
     vocab = sorted(t for t, c in df.items() if 3 <= c <= 0.4 * n)
     vindex = {t: i for i, t in enumerate(vocab)}
+    idf = np.array([math.log((1 + n) / (1 + df[t])) + 1 for t in vocab])
     X = np.zeros((n, len(vocab)), dtype=np.float32)
     for i, toks in enumerate(tokenized):
         counts = Counter(t for t in toks if t in vindex)
         for t, c in counts.items():
-            idf = math.log((1 + n) / (1 + df[t])) + 1
-            X[i, vindex[t]] = (1 + math.log(c)) * idf
+            X[i, vindex[t]] = (1 + math.log(c)) * idf[vindex[t]]
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     norms[norms == 0] = 1
     X = X / norms
-    return X, vocab
+    return X, vocab, idf
 
 
 def truncated_svd(X, dims):
@@ -219,10 +220,10 @@ def main():
     articles = raw["articles"]
     docs = [doc_text(a) for a in articles]
     print(f"building TF-IDF over {len(docs)} documents...", file=sys.stderr)
-    X, vocab = build_tfidf(docs)
+    X, vocab, idf = build_tfidf(docs)
     print(f"vocab={len(vocab)}", file=sys.stderr)
 
-    reduced, _ = truncated_svd(X, SVD_DIMS)
+    reduced, Vt = truncated_svd(X, SVD_DIMS)
     unit = reduced / (np.linalg.norm(reduced, axis=1, keepdims=True) + 1e-9)
 
     print(f"clustering into k={K_CLUSTERS}...", file=sys.stderr)
@@ -256,6 +257,23 @@ def main():
     print(f"clusters={k}", file=sys.stderr)
     for c in clusters:
         print(f"  [{c['id']:2d}] n={c['count']:4d}  {c['label']}", file=sys.stderr)
+
+    print("exporting projection model...", file=sys.stderr)
+    centroids_unit = np.array([unit[labels == j].mean(0) for j in range(k)])
+    centroids_unit /= np.linalg.norm(centroids_unit, axis=1, keepdims=True) + 1e-9
+    model = {
+        "svd_dims": Vt.shape[0],
+        "vocab": vocab,
+        "idf": [round(float(v), 5) for v in idf],
+        # components[d][vocab_idx]: projects a new tf-idf vector into the
+        # same latent space via a plain dot product (new_doc_tfidf @ components.T).
+        "components": [[round(float(v), 5) for v in row] for row in Vt],
+        "cluster_centroids": [[round(float(v), 5) for v in row] for row in centroids_unit],
+        # article_vectors[i] lines up 1:1 with data/corpus.json's articles array.
+        "article_vectors": [[round(float(v), 5) for v in row] for row in unit],
+    }
+    MODEL.write_text(json.dumps(model, ensure_ascii=False))
+    print(f"model -> {MODEL}", file=sys.stderr)
 
 
 if __name__ == "__main__":

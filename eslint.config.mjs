@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored static asset (pdfjs-dist's worker, copied for same-origin
+    // serving), not app source.
+    "public/pdf.worker.min.mjs",
   ]),
 ]);
 

@@ -13,13 +13,18 @@ topic instead of just by the names they already know.
 - **Articles** (`/articles`) - search/filter by journal, topic, year.
 - **Find a reviewer** (`/reviewers`) - pick a topic (or search a name) to see
   who's published there, ranked by article count, with links to their work.
+- **Place a submission** (`/submit`) - paste (or upload a PDF to autofill) a
+  manuscript's title/abstract to project it into the same topic space, see
+  the nearest existing articles (for spotting overlap or finding reviewers
+  with directly related work), and view it as a marker on the topic map.
+  PDF text never leaves the browser - only the extracted/edited text does.
 - Whole site is gated behind Supabase Auth (invite-only magic link).
 
 ## Data pipeline
 
 ```
 scripts/ingest_openalex.py   # fetch 10 years of articles from OpenAlex -> data/corpus.json
-scripts/build_layout.py      # TF-IDF -> SVD -> MDS -> clustering -> topic map coords
+scripts/build_layout.py      # TF-IDF -> SVD -> MDS -> clustering -> topic map coords + data/model.json
 ```
 
 `data/corpus.json` is the single source of truth for the v1 mockup - the
@@ -28,6 +33,18 @@ run locally. Re-run both scripts to refresh the corpus (`pip install numpy
 scipy` first). See `scripts/ingest_openalex.py` for journal/abstract-coverage
 notes - Behavior Analysis in Practice has few machine-readable abstracts, so
 those records fall back to OpenAlex's own topic/keyword tags for clustering.
+
+`data/model.json` is the fitted TF-IDF/SVD projection (vocab, idf, SVD
+components, per-article latent vectors, cluster centroids) that
+`src/lib/placement.ts` uses to place a brand-new title/abstract into the
+same space for `/submit`, without recomputing the whole corpus's layout.
+Re-running `build_layout.py` regenerates it from scratch alongside the corpus.
+
+`.github/workflows/refresh-data.yml` re-runs both scripts every Monday and
+commits `data/corpus.json` if anything changed, which in turn triggers the
+demo redeploy. OpenAlex/Crossref typically index new online-first articles
+within a few days of publication - if you're moving to the Supabase-backed
+version, add a `scripts/load_supabase.py` step to that workflow too.
 
 ## Running locally
 

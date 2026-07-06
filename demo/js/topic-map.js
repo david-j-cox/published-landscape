@@ -214,10 +214,7 @@
 
   function navigateTo(d) {
     if (!d) return;
-    hiddenClusters.delete(d.cluster_id);
-    document.querySelectorAll("#legend li").forEach((li, i) => {
-      if (clusters[i] && clusters[i].id === d.cluster_id) li.classList.remove("dim");
-    });
+    if (hiddenClusters.has(d.cluster_id)) showAll();
     const targetScale = Math.max(view.scale, fit.scale * 2.4);
     const rightInset = W() > 720 ? Math.min(420, W() * 0.92) : 0;
     const tx = (W() - rightInset) / 2, ty = H() / 2;
@@ -242,26 +239,44 @@
     history.replaceState(null, "", location.pathname);
   });
 
+  function refreshLegendDim() {
+    document.querySelectorAll("#legend li").forEach((li) => {
+      const id = Number(li.dataset.clusterId);
+      li.classList.toggle("dim", hiddenClusters.has(id));
+    });
+  }
+
+  function showAll() {
+    hiddenClusters.clear();
+    refreshLegendDim();
+  }
+
+  // Clicking a topic solos it (hides every other topic); clicking the same
+  // one again restores all topics. Clicking a different topic while soloed
+  // switches the solo to the new one.
+  function toggleCluster(id) {
+    const isSoloed = clusters.every((c) => (c.id === id ? !hiddenClusters.has(c.id) : hiddenClusters.has(c.id)));
+    hiddenClusters.clear();
+    if (!isSoloed) clusters.forEach((c) => { if (c.id !== id) hiddenClusters.add(c.id); });
+    refreshLegendDim();
+    draw();
+  }
+
   function buildLegend() {
     const ul = document.getElementById("legend-list");
     ul.innerHTML = "";
     clusters.forEach((c) => {
       const li = document.createElement("li");
+      li.dataset.clusterId = String(c.id);
       li.innerHTML = `<span class="swatch" style="background:${colorOf(c.id)}"></span>
         <span class="legend-text">${esc(c.label)}<span class="n"> ${c.count}</span></span>`;
-      li.addEventListener("click", () => {
-        if (hiddenClusters.has(c.id)) hiddenClusters.delete(c.id);
-        else hiddenClusters.add(c.id);
-        li.classList.toggle("dim");
-        draw();
-      });
+      li.addEventListener("click", () => toggleCluster(c.id));
       ul.appendChild(li);
     });
   }
 
   document.getElementById("reset-view").addEventListener("click", () => {
-    hiddenClusters.clear();
-    document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("dim"));
+    showAll();
     computeFit(); draw();
   });
 
