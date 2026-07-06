@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Topic map - Published Landscape</title>
+<link rel="stylesheet" href="css/site.css">
+<link rel="stylesheet" href="css/map.css">
+</head>
+<body>
+  <div class="banner">Public read-only demo, static data snapshot &middot; not the gated production app</div>
+  <nav class="topnav">
+    <a class="brand" href="index.html">Published Landscape</a>
+    <a href="map.html">Topic map</a>
+    <a href="articles.html">Articles</a>
+    <a href="reviewers.html">Find a reviewer</a>
+  </nav>
+
+  <div id="app">
+    <canvas id="map"></canvas>
+    <aside id="legend" aria-label="Topic clusters">
+      <div class="legend-head">Topics</div>
+      <ul id="legend-list"></ul>
+      <button id="reset-view" type="button">Reset view</button>
+    </aside>
+    <div id="tooltip" hidden></div>
+    <section id="detail" hidden aria-live="polite">
+      <button id="detail-close" type="button" aria-label="Close">&times;</button>
+      <div class="detail-tag" id="detail-tag"></div>
+      <h2 id="detail-title"></h2>
+      <div class="detail-meta" id="detail-meta"></div>
+      <p id="detail-abstract"></p>
+      <div class="detail-links" id="detail-links"></div>
+      <div class="detail-related" id="detail-related"></div>
+    </section>
+    <div id="hint">scroll to zoom &middot; drag to pan &middot; click a point to open it</div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/topic-map.js"></script>
+</body>
+</html>
