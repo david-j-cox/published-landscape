@@ -89,24 +89,6 @@
     ctx.font = "600 12px Inter, sans-serif";
     ctx.lineJoin = "round";
     const lineHeight = 14;
-    centroids.forEach((c) => {
-      if (hiddenClusters.has(c.id)) return;
-      const cl = clusters.find((k) => k.id === c.id);
-      if (!cl) return;
-      const lines = wrapLabel(cl.label, 20);
-      const cx = sx(c.x), cy = sy(c.y);
-      // A solid background pill (not just a thin outline) keeps the label
-      // readable when it sits in the thick of its own same-colored dot
-      // cluster - a stroke halo alone gets lost in that much noise.
-      const maxWidth = Math.max(...lines.map((ln) => ctx.measureText(ln).width));
-      const boxW = maxWidth + 12;
-      const boxH = lines.length * lineHeight + 8;
-      ctx.fillStyle = bgPill;
-      roundRectPath(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 5);
-      ctx.fill();
-      ctx.fillStyle = colorOf(c.id);
-      lines.forEach((ln, j) => ctx.fillText(ln, cx, cy + j * lineHeight - (lines.length - 1) * (lineHeight / 2)));
-    });
 
     items.forEach((d) => {
       if (hiddenClusters.has(d.cluster_id)) return;
@@ -120,6 +102,24 @@
       ctx.fill();
       if (on) { ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke(); }
       ctx.globalAlpha = 1;
+    });
+
+    // Labels draw last (on top of the dots) - otherwise a dense cluster's
+    // own dots paint right over the label and its background pill.
+    centroids.forEach((c) => {
+      if (hiddenClusters.has(c.id)) return;
+      const cl = clusters.find((k) => k.id === c.id);
+      if (!cl) return;
+      const lines = wrapLabel(cl.label, 20);
+      const cx = sx(c.x), cy = sy(c.y);
+      const maxWidth = Math.max(...lines.map((ln) => ctx.measureText(ln).width));
+      const boxW = maxWidth + 12;
+      const boxH = lines.length * lineHeight + 8;
+      ctx.fillStyle = bgPill;
+      roundRectPath(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 5);
+      ctx.fill();
+      ctx.fillStyle = colorOf(c.id);
+      lines.forEach((ln, j) => ctx.fillText(ln, cx, cy + j * lineHeight - (lines.length - 1) * (lineHeight / 2)));
     });
     ctx.restore();
   }
