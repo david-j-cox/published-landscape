@@ -97,7 +97,7 @@ sequenceDiagram
     API->>C: Cosine similarity vs all 4,095<br/>existing article vectors
     API->>API: Nearest neighbors, cluster vote,<br/>weighted x/y, reviewer ranking
     API-->>U: neighbors + reviewers + cluster + x/y
-    U->>U: Show results; optional marker on /map
+    U->>U: Show results, with an optional marker on /map
 ```
 
 ## How the data were gathered
