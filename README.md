@@ -32,6 +32,74 @@ A public, read-only, un-gated version of the topic map/articles/reviewers
 lives as a static demo (vanilla HTML/JS, no backend) deployed to GitHub
 Pages - see [Static demo](#static-demo).
 
+## Architecture at a glance
+
+How the data gets from journal APIs to the two deployed sites:
+
+```mermaid
+flowchart TB
+    subgraph Sources["Data sources"]
+        OA["OpenAlex API<br/>titles, authors, DOIs,<br/>partial abstracts"]
+        PM["PubMed / PMC<br/>abstract backfill, pass 1"]
+        SP["Springer Meta API<br/>abstract backfill, pass 2"]
+    end
+
+    subgraph Pipeline["Offline pipeline - scripts/"]
+        ING["ingest_openalex.py"]
+        ENR["enrich_missing_abstracts.py"]
+        BLD["build_layout.py<br/>TF-IDF -&gt; SVD -&gt; clustering -&gt; layout"]
+    end
+
+    OA --> ING --> ENR
+    PM --> ENR
+    SP --> ENR
+    ENR --> BLD
+
+    BLD --> CORPUS[("data/corpus.json<br/>4,095 articles + clusters + x/y")]
+    BLD --> MODEL[("data/model.json<br/>vocab, IDF, SVD matrix,<br/>article vectors, centroids")]
+
+    subgraph App["Next.js app - deployed on Vercel"]
+        DATA["src/lib/data.ts"]
+        PLACE["src/lib/placement.ts"]
+        AUTH["Supabase Auth gate<br/>(proxy.ts + RLS)"]
+        PAGES["/map  /articles  /submit"]
+    end
+
+    subgraph Demo["Static demo - deployed on GitHub Pages"]
+        VJS["vanilla JS<br/>demo/js/*"]
+        DPAGES["map.html / articles.html<br/>no login, no backend"]
+    end
+
+    CORPUS --> DATA --> PAGES
+    MODEL --> PLACE --> PAGES
+    AUTH -.gates.-> PAGES
+    CORPUS --> VJS --> DPAGES
+
+    GH["GitHub Actions<br/>weekly refresh-data.yml<br/>+ deploy-demo.yml on push"]
+    GH -. re-runs .-> Pipeline
+    GH -. redeploys .-> Demo
+```
+
+And what happens on a single `/submit` request - the frozen model from the
+pipeline above gets reused rather than recomputed:
+
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant API as /api/place
+    participant M as data/model.json
+    participant C as data/corpus.json
+
+    U->>U: Paste title/abstract<br/>(or extract PDF text locally - never uploaded)
+    U->>API: POST title + abstract
+    API->>M: Load frozen vocab, IDF,<br/>SVD matrix, article vectors, centroids
+    API->>API: Tokenize -&gt; TF-IDF -&gt; project via SVD<br/>= new 60-dim vector
+    API->>C: Cosine similarity vs all 4,095<br/>existing article vectors
+    API->>API: Nearest neighbors, cluster vote,<br/>weighted x/y, reviewer ranking
+    API-->>U: neighbors + reviewers + cluster + x/y
+    U->>U: Show results; optional marker on /map
+```
+
 ## How the data were gathered
 
 **Journals** (`scripts/ingest_openalex.py`): Journal of Applied Behavior
