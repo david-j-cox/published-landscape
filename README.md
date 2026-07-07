@@ -13,13 +13,13 @@ topic instead of just by the names they already know.
 - **Topic map** (`/map`) - every article placed by what it's about, not when
   it was published. Click a point for the full abstract, DOI, and related work.
 - **Articles** (`/articles`) - search/filter by journal, topic, year.
-- **Find a reviewer** (`/reviewers`) - pick a topic (or search a name) to see
-  who's published there, ranked by article count, with links to their work.
-- **Place a submission** (`/submit`) - paste (or upload a PDF to autofill) a
-  manuscript's title/abstract to project it into the same topic space, see
-  the nearest existing articles (for spotting overlap or finding reviewers
-  with directly related work), and view it as a marker on the topic map.
-  PDF text never leaves the browser - only the extracted/edited text does.
+- **See where a new article lands** (`/submit`) - paste (or upload a PDF to
+  autofill) a manuscript's title/abstract to project it into the same topic
+  space, see the nearest existing articles (for spotting overlap), get a
+  ranked list of candidate reviewers (authors of those nearest articles,
+  with DOI links to find corresponding-author contact info), and view it as
+  a marker on the topic map. PDF text never leaves the browser - only the
+  extracted/edited text does.
 - Whole site is gated behind Supabase Auth (invite-only magic link).
 
 ## Data pipeline

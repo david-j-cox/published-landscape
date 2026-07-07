@@ -79,7 +79,7 @@ export default function SubmitPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-6">
-      <h1 className="text-lg font-semibold">Place a submitted article</h1>
+      <h1 className="text-lg font-semibold">See where a new article lands</h1>
       <p className="mt-1 text-sm text-neutral-500">
         Paste (or upload a PDF to autofill) a submission&apos;s title and abstract to see where it
         would land in the topic landscape and which existing articles are nearest to it - useful
@@ -230,13 +230,6 @@ export default function SubmitPage() {
               </li>
             ))}
           </ul>
-
-          <Link
-            href={`/reviewers?topic=${result.clusterId}`}
-            className="mt-4 inline-block text-xs text-blue-600 underline dark:text-blue-400"
-          >
-            Browse all reviewers for &quot;{result.clusterLabel}&quot; instead &rarr;
-          </Link>
         </div>
       )}
     </div>

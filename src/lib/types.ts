@@ -67,15 +67,6 @@ export type ArticleDetail = Article & {
   relatedArticles: ArticleSummary[];
 };
 
-export type AuthorSummary = {
-  id: string;
-  display_name: string;
-  orcid: string | null;
-  articleCount: number;
-  clusters: { id: number; label: string; count: number }[];
-  articles: { id: string; title: string; year: number | null; doi: string | null }[];
-};
-
 export type PlacementNeighbor = {
   id: string;
   title: string;

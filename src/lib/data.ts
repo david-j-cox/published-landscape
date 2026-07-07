@@ -1,14 +1,6 @@
 import "server-only";
 import corpusJson from "@/data/corpus.json";
-import type {
-  Article,
-  ArticleDetail,
-  ArticleSummary,
-  AuthorSummary,
-  Cluster,
-  Journal,
-  MapPoint,
-} from "@/lib/types";
+import type { Article, ArticleDetail, ArticleSummary, Cluster, Journal, MapPoint } from "@/lib/types";
 
 // v1 data source: the OpenAlex-derived static corpus checked into the repo
 // (scripts/ingest_openalex.py + scripts/build_layout.py). Every function
@@ -119,58 +111,4 @@ export function getArticleById(id: string): ArticleDetail | null {
 export function getYears(): number[] {
   const years = new Set(corpus.articles.map((a) => a.year).filter((y): y is number => y != null));
   return [...years].sort((a, b) => b - a);
-}
-
-export function searchAuthors(query: string, limit = 20): AuthorSummary[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const byAuthor = new Map<string, Article[]>();
-  for (const article of corpus.articles) {
-    for (const author of article.authors) {
-      if (!author.display_name.toLowerCase().includes(q)) continue;
-      const list = byAuthor.get(author.id) ?? [];
-      list.push(article);
-      byAuthor.set(author.id, list);
-    }
-  }
-  return summarizeAuthors(byAuthor).slice(0, limit);
-}
-
-export function getReviewersByCluster(clusterId: number, limit = 30): AuthorSummary[] {
-  const byAuthor = new Map<string, Article[]>();
-  for (const article of corpus.articles) {
-    if (article.cluster_id !== clusterId) continue;
-    for (const author of article.authors) {
-      const list = byAuthor.get(author.id) ?? [];
-      list.push(article);
-      byAuthor.set(author.id, list);
-    }
-  }
-  return summarizeAuthors(byAuthor).slice(0, limit);
-}
-
-function summarizeAuthors(byAuthor: Map<string, Article[]>): AuthorSummary[] {
-  const summaries: AuthorSummary[] = [];
-  for (const [authorId, articles] of byAuthor) {
-    const first = articles[0]!.authors.find((a) => a.id === authorId)!;
-    const clusterCounts = new Map<number, number>();
-    for (const a of articles) {
-      clusterCounts.set(a.cluster_id, (clusterCounts.get(a.cluster_id) ?? 0) + 1);
-    }
-    const clusters = [...clusterCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([id, count]) => ({ id, label: clustersById.get(id)?.label ?? `Cluster ${id}`, count }));
-
-    summaries.push({
-      id: authorId,
-      display_name: first.display_name,
-      orcid: first.orcid,
-      articleCount: articles.length,
-      clusters,
-      articles: articles
-        .sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
-        .map((a) => ({ id: a.id, title: a.title, year: a.year, doi: a.doi })),
-    });
-  }
-  return summaries.sort((a, b) => b.articleCount - a.articleCount);
 }

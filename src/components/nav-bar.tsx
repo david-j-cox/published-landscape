@@ -26,11 +26,8 @@ export async function NavBar() {
           <Link href="/articles" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
             Articles
           </Link>
-          <Link href="/reviewers" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
-            Find a reviewer
-          </Link>
           <Link href="/submit" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
-            Place a submission
+            See where a new article lands
           </Link>
         </nav>
         {user && (
