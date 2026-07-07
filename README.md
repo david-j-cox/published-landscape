@@ -93,7 +93,7 @@ sequenceDiagram
     U->>U: Paste title/abstract<br/>(or extract PDF text locally - never uploaded)
     U->>API: POST title + abstract
     API->>M: Load frozen vocab, IDF,<br/>SVD matrix, article vectors, centroids
-    API->>API: Tokenize -&gt; TF-IDF -&gt; project via SVD<br/>= new 60-dim vector
+    API->>API: Tokenize, build TF-IDF vector,<br/>project via SVD into a new 60-dim vector
     API->>C: Cosine similarity vs all 4,095<br/>existing article vectors
     API->>API: Nearest neighbors, cluster vote,<br/>weighted x/y, reviewer ranking
     API-->>U: neighbors + reviewers + cluster + x/y
