@@ -3,11 +3,12 @@
 
 Same pure-numpy shape as the bds-lab-website approach (TF-IDF -> truncated
 SVD -> classical MDS -> clustering -> "topic islands" layout), scaled to a
-~2,700-article corpus and adapted for two data quirks here:
+~4,000-article, 7-journal corpus and adapted for two data quirks here:
 
   - No manual labels.json to override clustering (this corpus is too big to
     hand-label): clusters and their labels are fully derived from text.
-  - ~40% of articles (almost all Behavior Analysis in Practice) have no
+  - A meaningful minority of articles (mostly the Springer-published
+    journals, before scripts/enrich_missing_abstracts.py runs) have no
     abstract. For those, doc_text() falls back to title + OpenAlex's own
     computed topics/keywords, which OpenAlex assigns from title/venue/refs
     even without abstract text - degraded signal, not absent signal.
@@ -30,7 +31,7 @@ from scipy.spatial.distance import squareform
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "data" / "corpus.json"
 MODEL = ROOT / "data" / "model.json"
-K_CLUSTERS = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+K_CLUSTERS = int(sys.argv[1]) if len(sys.argv) > 1 else 45
 SVD_DIMS = 60
 SEED = 7
 
@@ -46,7 +47,9 @@ review article paper case study single-case
 
 LABEL_STOP = STOPWORDS | set("""
 human humans participants participant model models modeling quantitative
-intro introduction special section issue chapter guide
+intro introduction special section issue chapter guide editorial editors
+supplementary contains material materials online available doi https www
+version unlabelled esm publisher published copyright information
 """.split())
 
 

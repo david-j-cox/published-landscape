@@ -2,7 +2,9 @@
 
 Behavior-analysis journal articles, organized by topic instead of chronology.
 Covers the last 10 years of the *Journal of Applied Behavior Analysis*,
-*Behavior Analysis in Practice*, and *Behavioral Interventions* so that
+*Behavior Analysis in Practice*, *Behavioral Interventions*, *Journal of the
+Experimental Analysis of Behavior*, *Perspectives on Behavior Science*,
+*The Analysis of Verbal Behavior*, and *The Psychological Record* so that
 readers can browse by theme and associate editors can find reviewers by
 topic instead of just by the names they already know.
 
@@ -23,16 +25,27 @@ topic instead of just by the names they already know.
 ## Data pipeline
 
 ```
-scripts/ingest_openalex.py   # fetch 10 years of articles from OpenAlex -> data/corpus.json
-scripts/build_layout.py      # TF-IDF -> SVD -> MDS -> clustering -> topic map coords + data/model.json
+scripts/ingest_openalex.py         # fetch 10 years of articles from OpenAlex -> data/corpus.json
+scripts/enrich_missing_abstracts.py # backfill missing abstracts from PubMed, then Springer Meta API
+scripts/build_layout.py            # TF-IDF -> SVD -> MDS -> clustering -> topic map coords + data/model.json
 ```
 
 `data/corpus.json` is the single source of truth for the v1 mockup - the
 Next.js app (`src/lib/data.ts`) reads it directly, no database required to
-run locally. Re-run both scripts to refresh the corpus (`pip install numpy
-scipy` first). See `scripts/ingest_openalex.py` for journal/abstract-coverage
-notes - Behavior Analysis in Practice has few machine-readable abstracts, so
-those records fall back to OpenAlex's own topic/keyword tags for clustering.
+run locally. Re-run all three scripts in order to refresh the corpus
+(`pip install numpy scipy requests` first).
+
+OpenAlex/Crossref only carry abstracts for a fraction of the Springer-published
+journals here (Behavior Analysis in Practice, Perspectives on Behavior
+Science, The Analysis of Verbal Behavior, The Psychological Record) - see
+`scripts/ingest_openalex.py` for per-journal coverage notes.
+`scripts/enrich_missing_abstracts.py` closes most of that gap: PubMed/PMC
+first (unambiguously open, no API key needed), then Springer's own Meta API
+(dev.springernature.com - free registration, `SPRINGER_META_API_KEY` env var)
+for whatever PubMed doesn't have. The handful that remain missing (mostly
+tributes/errata with no abstract anywhere) fall back to OpenAlex's own
+topic/keyword tags for clustering, and are flagged in the UI as approximate
+placements.
 
 `data/model.json` is the fitted TF-IDF/SVD projection (vocab, idf, SVD
 components, per-article latent vectors, cluster centroids) that

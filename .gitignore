@@ -32,12 +32,17 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env*.example
 
 # vercel
 .vercel
 
 # local Claude Code session state
 /.claude/
+
+# python
+__pycache__/
+*.pyc
 
 # typescript
 *.tsbuildinfo

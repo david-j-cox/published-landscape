@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Fetch the last 10 years of articles for the target journals from OpenAlex.
 
-OpenAlex is free, keyless, and covers all three journals well enough for a
-v1 corpus (see JOURNALS below for per-journal abstract-availability notes).
+OpenAlex is free, keyless, and covers all these journals well enough for a
+v1 corpus (see JOURNALS below for per-journal abstract-availability notes -
+the Springer-published ones have thin abstract coverage here and rely on
+scripts/enrich_missing_abstracts.py to backfill from PubMed/Springer Meta).
 Output is data/corpus.json: normalized journals/authors/articles, independent
 of any database - the Next.js app can read this file directly, and
 scripts/load_supabase.py can push the same file into Postgres once a
@@ -25,7 +27,18 @@ JOURNALS = [
     {"openalex_source_id": "S125122479", "name": "Journal of Applied Behavior Analysis", "issn_l": "0021-8855"},
     {"openalex_source_id": "S2764616832", "name": "Behavior Analysis in Practice", "issn_l": "1998-1929"},
     {"openalex_source_id": "S203327754", "name": "Behavioral Interventions", "issn_l": "1072-0847"},
+    {"openalex_source_id": "S168850678", "name": "Journal of the Experimental Analysis of Behavior", "issn_l": "0022-5002"},
+    {"openalex_source_id": "S4210188225", "name": "Perspectives on Behavior Science", "issn_l": "2520-8969"},
+    {"openalex_source_id": "S113178815", "name": "The Analysis of Verbal Behavior", "issn_l": "0889-9401"},
+    {"openalex_source_id": "S92682373", "name": "The Psychological Record", "issn_l": "0033-2933"},
 ]
+
+NOISE_TITLE_RE = re.compile(
+    r"^(issue information|front matter|back matter|cover|editorial board|"
+    r"guest eds? ?& ?revs? acknowledge?ment|call for (nominations|applications)|"
+    r"correction:?|correction to:|corrigendum|erratum)\b",
+    re.IGNORECASE,
+)
 
 API = "https://api.openalex.org/works"
 SELECT = ",".join([
@@ -145,11 +158,10 @@ def main():
         works = fetch_all(journal["openalex_source_id"])
         for w in works:
             article = normalize_work(w, journal_id)
-            # A handful of front-matter pages are misclassified as type
-            # "article"/"review" in OpenAlex and slip past the type filter.
-            if not article["title"] or article["title"].strip().lower() in (
-                "issue information", "front matter", "back matter", "cover", "editorial board",
-            ):
+            # A handful of front-matter/administrative pages and corrections
+            # are misclassified as type "article"/"review" in OpenAlex and
+            # slip past the type:article|review filter above.
+            if not article["title"] or NOISE_TITLE_RE.match(article["title"].strip()):
                 continue
             for a in article["authors"]:
                 all_authors.setdefault(a["id"], {
