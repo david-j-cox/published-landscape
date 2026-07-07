@@ -72,14 +72,23 @@
     ctx.scale(DPR, DPR);
     ctx.clearRect(0, 0, W(), H());
 
+    const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const bgHalo = isDark ? "#0a0a0aee" : "#fafafaee";
+
     ctx.textAlign = "center";
     ctx.font = "600 12px Inter, sans-serif";
+    ctx.lineJoin = "round";
     centroids.forEach((c) => {
       if (hiddenClusters.has(c.id)) return;
       const cl = clusters.find((k) => k.id === c.id);
       if (!cl) return;
-      ctx.fillStyle = colorOf(c.id) + "cc";
       const lines = wrapLabel(cl.label, 20);
+      // Halo (background-colored stroke behind the fill) keeps the label
+      // legible over a cloud of same-colored dots.
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = bgHalo;
+      lines.forEach((ln, j) => ctx.strokeText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7));
+      ctx.fillStyle = colorOf(c.id);
       lines.forEach((ln, j) => ctx.fillText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7));
     });
 
@@ -182,7 +191,7 @@
       abs.textContent = d.abstract;
       abs.style.display = "";
     } else {
-      abs.textContent = "No abstract available. OpenAlex topics: " + (d.openalex_topics || []).map((t) => t.display_name).join(", ");
+      abs.textContent = "No abstract available, so its position on the map is based only on its title and general subject tags - treat its placement here as approximate. Tags: " + (d.openalex_topics || []).map((t) => t.display_name).join(", ");
       abs.style.display = "";
     }
 

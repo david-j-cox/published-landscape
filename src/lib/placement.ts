@@ -2,7 +2,7 @@ import "server-only";
 import corpusJson from "@/data/corpus.json";
 import modelJson from "@/data/model.json";
 import { getClusters } from "@/lib/data";
-import type { Article, ArticleSummary } from "@/lib/types";
+import type { Article, CandidateReviewer, PlacementNeighbor } from "@/lib/types";
 
 // Projects a new title/abstract into the same TF-IDF -> SVD latent space
 // computed by scripts/build_layout.py (see data/model.json), so a
@@ -54,23 +54,15 @@ function norm(a: number[]): number {
   return Math.sqrt(dot(a, a));
 }
 
-function shortAuthors(authors: Article["authors"]): string {
-  const names = authors.map((a) => a.display_name.split(" ").pop() as string);
-  if (names.length === 0) return "";
-  if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} & ${names[1]}`;
-  return `${names[0]} et al.`;
-}
-
-function toSummary(a: Article): ArticleSummary {
+function toNeighbor(a: Article, similarity: number): PlacementNeighbor {
   return {
     id: a.id,
     title: a.title,
     year: a.year,
     journal_id: a.journal_id,
-    cluster_id: a.cluster_id,
-    authorsShort: shortAuthors(a.authors),
-    hasAbstract: a.has_full_abstract,
+    doi: a.doi,
+    similarity,
+    authors: a.authors,
   };
 }
 
@@ -100,18 +92,28 @@ export type PlacementResult = {
   clusterSimilarity: number;
   x: number;
   y: number;
-  neighbors: (ArticleSummary & { similarity: number })[];
+  neighbors: PlacementNeighbor[];
+  reviewers: CandidateReviewer[];
   matchedTermCount: number;
 };
 
-export function placeArticle(title: string, abstract: string, topK = 10): PlacementResult {
+export function placeArticle(
+  title: string,
+  abstract: string,
+  topK = 10,
+  reviewerPoolSize = 30,
+): PlacementResult {
   const latent = projectToLatent(title, abstract);
   const matchedTermCount = tokenize(`${title} ${title} ${title} ${abstract}`).filter((t) =>
     vocabIndex.has(t),
   ).length;
 
   const sims = model.article_vectors.map((vec) => dot(vec, latent));
-  const order = [...sims.keys()].sort((a, b) => sims[b] - sims[a]).slice(0, topK);
+  // A wider pool feeds the reviewer suggestions (more candidate authors to
+  // rank), while the displayed "nearest articles" and cluster/xy placement
+  // stay tighter, to the closest matches only.
+  const fullOrder = [...sims.keys()].sort((a, b) => sims[b] - sims[a]).slice(0, reviewerPoolSize);
+  const order = fullOrder.slice(0, topK);
 
   // Assign by plurality vote among the nearest neighbors (weighted by
   // similarity) rather than nearest cluster centroid: centroid similarity
@@ -134,7 +136,7 @@ export function placeArticle(title: string, abstract: string, topK = 10): Placem
   }
   const clusterSims = model.cluster_centroids.map((c) => dot(c, latent));
 
-  const neighbors = order.map((i) => ({ ...toSummary(articles[i]), similarity: sims[i] }));
+  const neighbors = order.map((i) => toNeighbor(articles[i], sims[i]));
 
   const topForXY = order.slice(0, 8);
   let wx = 0, wy = 0, wsum = 0;
@@ -145,6 +147,41 @@ export function placeArticle(title: string, abstract: string, topK = 10): Placem
     wsum += w;
   }
 
+  // Candidate reviewers: authors of the nearest articles, ranked by the
+  // summed similarity of the articles they co-authored (so someone who
+  // wrote two closely-related papers outranks someone who wrote one
+  // marginally-related one).
+  const byAuthor = new Map<
+    string,
+    { display_name: string; orcid: string | null; score: number; papers: CandidateReviewer["papers"] }
+  >();
+  for (const i of fullOrder) {
+    const sim = sims[i];
+    if (sim <= 0) continue;
+    const art = articles[i];
+    for (const au of art.authors) {
+      const entry = byAuthor.get(au.id) ?? {
+        display_name: au.display_name,
+        orcid: au.orcid,
+        score: 0,
+        papers: [],
+      };
+      entry.score += sim;
+      entry.papers.push({ id: art.id, title: art.title, year: art.year, doi: art.doi, similarity: sim });
+      byAuthor.set(au.id, entry);
+    }
+  }
+  const reviewers: CandidateReviewer[] = [...byAuthor.entries()]
+    .sort((a, b) => b[1].score - a[1].score)
+    .slice(0, 15)
+    .map(([id, e]) => ({
+      id,
+      display_name: e.display_name,
+      orcid: e.orcid,
+      score: e.score,
+      papers: e.papers.sort((a, b) => b.similarity - a.similarity).slice(0, 3),
+    }));
+
   const clusters = getClusters();
   return {
     clusterId: bestCluster,
@@ -153,6 +190,7 @@ export function placeArticle(title: string, abstract: string, topK = 10): Placem
     x: wsum > 0 ? wx / wsum : 0,
     y: wsum > 0 ? wy / wsum : 0,
     neighbors,
+    reviewers,
     matchedTermCount,
   };
 }

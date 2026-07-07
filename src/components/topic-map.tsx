@@ -103,20 +103,34 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
     });
 
     function draw() {
+      const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const bgHalo = isDark ? "#0a0a0aee" : "#fafafaee";
+      const inkColor = isDark ? "#fbbf24" : "#18181b";
+      const inkStroke = isDark ? "#18181b" : "#fbbf24";
+
       ctx!.save();
       ctx!.scale(dpr, dpr);
       ctx!.clearRect(0, 0, W(), H());
 
       ctx!.textAlign = "center";
       ctx!.font = "600 12px Inter, sans-serif";
+      ctx!.lineJoin = "round";
       centroids.forEach((c) => {
         if (hiddenRef.current.has(c.id)) return;
         const cl = clusters.find((k) => k.id === c.id);
         if (!cl) return;
-        ctx!.fillStyle = colorOf(c.id) + "cc";
         const lines = wrapLabel(cl.label, 20);
+        // A halo (background-colored stroke behind the fill) keeps the label
+        // readable when it sits over a cloud of same-colored dots, which
+        // plain colored-on-colored text isn't.
+        ctx!.lineWidth = 3;
+        ctx!.strokeStyle = bgHalo;
         lines.forEach((ln, j) =>
-          ctx!.fillText(ln, sx(c.x), sy(c.y) + j * 14 - ((lines.length - 1) * 7)),
+          ctx!.strokeText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7),
+        );
+        ctx!.fillStyle = colorOf(c.id);
+        lines.forEach((ln, j) =>
+          ctx!.fillText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7),
         );
       });
 
@@ -149,13 +163,16 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
         ctx!.lineTo(x, y + r);
         ctx!.lineTo(x - r, y);
         ctx!.closePath();
-        ctx!.fillStyle = "#18181b";
+        ctx!.fillStyle = inkColor;
         ctx!.fill();
         ctx!.lineWidth = 2;
-        ctx!.strokeStyle = "#fbbf24";
+        ctx!.strokeStyle = inkStroke;
         ctx!.stroke();
-        ctx!.fillStyle = "#18181b";
+        ctx!.lineWidth = 3;
+        ctx!.strokeStyle = bgHalo;
         ctx!.font = "700 11px Inter, sans-serif";
+        ctx!.strokeText("Your submission", x, y - r - 8);
+        ctx!.fillStyle = inkColor;
         ctx!.fillText("Your submission", x, y - r - 8);
       }
       ctx!.restore();
@@ -485,7 +502,9 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
                 </p>
               ) : (
                 <p className="mt-4 text-sm italic text-neutral-400">
-                  No abstract available. Topics: {detail.openalex_topics.map((t) => t.display_name).join(", ")}
+                  No abstract available, so its position on the map is based only on its title and
+                  general subject tags - treat its placement here as approximate. Tags:{" "}
+                  {detail.openalex_topics.map((t) => t.display_name).join(", ")}
                 </p>
               )}
               <div className="mt-4 flex gap-3 text-sm">

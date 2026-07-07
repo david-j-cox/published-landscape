@@ -73,7 +73,28 @@ export type AuthorSummary = {
   orcid: string | null;
   articleCount: number;
   clusters: { id: number; label: string; count: number }[];
-  articles: { id: string; title: string; year: number | null }[];
+  articles: { id: string; title: string; year: number | null; doi: string | null }[];
+};
+
+export type PlacementNeighbor = {
+  id: string;
+  title: string;
+  year: number | null;
+  journal_id: number;
+  doi: string | null;
+  similarity: number;
+  authors: ArticleAuthor[];
+};
+
+// A candidate reviewer surfaced by /submit: someone who co-authored one or
+// more of the nearest existing articles to a placed submission, ranked by
+// the summed similarity of those articles (not just raw article count).
+export type CandidateReviewer = {
+  id: string;
+  display_name: string;
+  orcid: string | null;
+  score: number;
+  papers: { id: string; title: string; year: number | null; doi: string | null; similarity: number }[];
 };
 
 // Stashed in sessionStorage by /submit's "View on topic map" so the map can
@@ -84,5 +105,5 @@ export type PendingPlacement = {
   y: number;
   clusterId: number;
   clusterLabel: string;
-  neighbors: { id: string; title: string; year: number | null; similarity: number }[];
+  neighbors: PlacementNeighbor[];
 };

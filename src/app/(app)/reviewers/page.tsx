@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getClusters, getReviewersByCluster, searchAuthors } from "@/lib/data";
 import type { AuthorSummary } from "@/lib/types";
+import { doiUrl } from "@/lib/util";
 
 export default async function ReviewersPage({
   searchParams,
@@ -20,6 +21,10 @@ export default async function ReviewersPage({
       <h1 className="text-lg font-semibold">Find a reviewer</h1>
       <p className="mt-1 text-sm text-neutral-500">
         Search by topic to find authors who have published in that area, or search by name directly.
+      </p>
+      <p className="mt-2 rounded-md bg-neutral-50 px-3 py-2 text-sm text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">
+        Have a specific manuscript in hand? <Link href="/submit" className="text-blue-600 underline dark:text-blue-400">Place a submission</Link> instead
+        to rank reviewers by how closely their work matches it, rather than by topic alone.
       </p>
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row">
@@ -94,6 +99,20 @@ export default async function ReviewersPage({
                     {a.title}
                   </Link>{" "}
                   <span className="text-neutral-400">({a.year})</span>
+                  {a.doi && (
+                    <>
+                      {" "}
+                      &middot;{" "}
+                      <a
+                        href={doiUrl(a.doi)}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-blue-600 underline dark:text-blue-400"
+                      >
+                        View paper
+                      </a>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

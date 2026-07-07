@@ -24,7 +24,7 @@
       ${
         article.abstract
           ? `<p style="margin-top:20px;line-height:1.7">${esc(article.abstract)}</p>`
-          : `<p style="margin-top:20px;font-style:italic;color:var(--faint)">No abstract available. OpenAlex topics: ${esc(
+          : `<p style="margin-top:20px;font-style:italic;color:var(--faint)">No abstract available, so its position on the map is based only on its title and general subject tags - treat its placement there as approximate. Tags: ${esc(
               (article.openalex_topics || []).map((t) => t.display_name).join(", "),
             )}</p>`
       }

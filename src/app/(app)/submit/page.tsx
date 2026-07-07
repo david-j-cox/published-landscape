@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
 import { extractPdfText, guessAbstract } from "@/lib/pdf-extract";
 import type { PlacementResult } from "@/lib/placement";
+import { doiUrl } from "@/lib/util";
 
 export default function SubmitPage() {
   const router = useRouter();
@@ -161,11 +162,81 @@ export default function SubmitPage() {
                   </span>
                 </div>
                 <div className="text-xs text-neutral-500">
-                  {n.authorsShort} &middot; {n.year}
+                  {n.authors.map((a) => a.display_name).join(", ")} &middot; {n.year}
+                  {n.doi && (
+                    <>
+                      {" "}
+                      &middot;{" "}
+                      <a
+                        href={doiUrl(n.doi)}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-blue-600 underline dark:text-blue-400"
+                      >
+                        View paper
+                      </a>
+                    </>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
+
+          <div className="mt-8 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+            Suggested reviewers
+          </div>
+          <p className="mt-1 text-xs text-neutral-400">
+            Authors of the articles above, ranked by how closely their work matches this
+            submission. Open a linked paper to find the corresponding author&apos;s contact
+            details on the publisher&apos;s site.
+          </p>
+          <ul className="mt-2 flex flex-col divide-y divide-neutral-200 dark:divide-neutral-800">
+            {result.reviewers.map((r) => (
+              <li key={r.id} className="py-2.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm font-medium">{r.display_name}</span>
+                  {r.orcid && (
+                    <a
+                      href={r.orcid}
+                      target="_blank"
+                      rel="noopener"
+                      className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
+                    >
+                      ORCID
+                    </a>
+                  )}
+                </div>
+                <ul className="mt-1 flex flex-col gap-0.5 text-xs text-neutral-500">
+                  {r.papers.map((p) => (
+                    <li key={p.id}>
+                      {p.doi ? (
+                        <a
+                          href={doiUrl(p.doi)}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-blue-600 underline dark:text-blue-400"
+                        >
+                          {p.title}
+                        </a>
+                      ) : (
+                        <Link href={`/articles/${p.id}`} className="hover:underline">
+                          {p.title}
+                        </Link>
+                      )}{" "}
+                      ({p.year}) &middot; {Math.round(p.similarity * 100)}% similar
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+
+          <Link
+            href={`/reviewers?topic=${result.clusterId}`}
+            className="mt-4 inline-block text-xs text-blue-600 underline dark:text-blue-400"
+          >
+            Browse all reviewers for &quot;{result.clusterLabel}&quot; instead &rarr;
+          </Link>
         </div>
       )}
     </div>

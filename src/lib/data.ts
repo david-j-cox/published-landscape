@@ -169,7 +169,7 @@ function summarizeAuthors(byAuthor: Map<string, Article[]>): AuthorSummary[] {
       clusters,
       articles: articles
         .sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
-        .map((a) => ({ id: a.id, title: a.title, year: a.year })),
+        .map((a) => ({ id: a.id, title: a.title, year: a.year, doi: a.doi })),
     });
   }
   return summaries.sort((a, b) => b.articleCount - a.articleCount);

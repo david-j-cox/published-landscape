@@ -34,7 +34,8 @@ export default async function ArticleDetailPage({
         </p>
       ) : (
         <p className="mt-5 text-sm italic text-neutral-400">
-          No abstract available from the source index. OpenAlex topics:{" "}
+          No abstract available, so its position on the map is based only on its title and general
+          subject tags - treat its placement there as approximate. Tags:{" "}
           {article.openalex_topics.map((t) => t.display_name).join(", ")}
         </p>
       )}
