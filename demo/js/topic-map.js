@@ -67,29 +67,45 @@
     });
   }
 
+  function roundRectPath(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
   function draw() {
     ctx.save();
     ctx.scale(DPR, DPR);
     ctx.clearRect(0, 0, W(), H());
 
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const bgHalo = isDark ? "#0a0a0aee" : "#fafafaee";
+    const bgPill = isDark ? "rgba(10,10,10,0.88)" : "rgba(250,250,250,0.88)";
 
     ctx.textAlign = "center";
     ctx.font = "600 12px Inter, sans-serif";
     ctx.lineJoin = "round";
+    const lineHeight = 14;
     centroids.forEach((c) => {
       if (hiddenClusters.has(c.id)) return;
       const cl = clusters.find((k) => k.id === c.id);
       if (!cl) return;
       const lines = wrapLabel(cl.label, 20);
-      // Halo (background-colored stroke behind the fill) keeps the label
-      // legible over a cloud of same-colored dots.
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = bgHalo;
-      lines.forEach((ln, j) => ctx.strokeText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7));
+      const cx = sx(c.x), cy = sy(c.y);
+      // A solid background pill (not just a thin outline) keeps the label
+      // readable when it sits in the thick of its own same-colored dot
+      // cluster - a stroke halo alone gets lost in that much noise.
+      const maxWidth = Math.max(...lines.map((ln) => ctx.measureText(ln).width));
+      const boxW = maxWidth + 12;
+      const boxH = lines.length * lineHeight + 8;
+      ctx.fillStyle = bgPill;
+      roundRectPath(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 5);
+      ctx.fill();
       ctx.fillStyle = colorOf(c.id);
-      lines.forEach((ln, j) => ctx.fillText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7));
+      lines.forEach((ln, j) => ctx.fillText(ln, cx, cy + j * lineHeight - (lines.length - 1) * (lineHeight / 2)));
     });
 
     items.forEach((d) => {

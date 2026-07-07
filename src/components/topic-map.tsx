@@ -102,9 +102,19 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       return { id: c.id, x: mx, y: my };
     });
 
+    function roundRectPath(x: number, y: number, w: number, h: number, r: number) {
+      ctx!.beginPath();
+      ctx!.moveTo(x + r, y);
+      ctx!.arcTo(x + w, y, x + w, y + h, r);
+      ctx!.arcTo(x + w, y + h, x, y + h, r);
+      ctx!.arcTo(x, y + h, x, y, r);
+      ctx!.arcTo(x, y, x + w, y, r);
+      ctx!.closePath();
+    }
+
     function draw() {
       const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      const bgHalo = isDark ? "#0a0a0aee" : "#fafafaee";
+      const bgPill = isDark ? "rgba(10,10,10,0.88)" : "rgba(250,250,250,0.88)";
       const inkColor = isDark ? "#fbbf24" : "#18181b";
       const inkStroke = isDark ? "#18181b" : "#fbbf24";
 
@@ -115,22 +125,25 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       ctx!.textAlign = "center";
       ctx!.font = "600 12px Inter, sans-serif";
       ctx!.lineJoin = "round";
+      const lineHeight = 14;
       centroids.forEach((c) => {
         if (hiddenRef.current.has(c.id)) return;
         const cl = clusters.find((k) => k.id === c.id);
         if (!cl) return;
         const lines = wrapLabel(cl.label, 20);
-        // A halo (background-colored stroke behind the fill) keeps the label
-        // readable when it sits over a cloud of same-colored dots, which
-        // plain colored-on-colored text isn't.
-        ctx!.lineWidth = 3;
-        ctx!.strokeStyle = bgHalo;
-        lines.forEach((ln, j) =>
-          ctx!.strokeText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7),
-        );
+        const cx = sx(c.x), cy = sy(c.y);
+        // A solid background pill (not just a thin outline) keeps the label
+        // readable when it sits in the thick of its own same-colored dot
+        // cluster - a stroke halo alone gets lost in that much noise.
+        const maxWidth = Math.max(...lines.map((ln) => ctx!.measureText(ln).width));
+        const boxW = maxWidth + 12;
+        const boxH = lines.length * lineHeight + 8;
+        ctx!.fillStyle = bgPill;
+        roundRectPath(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 5);
+        ctx!.fill();
         ctx!.fillStyle = colorOf(c.id);
         lines.forEach((ln, j) =>
-          ctx!.fillText(ln, sx(c.x), sy(c.y) + j * 14 - (lines.length - 1) * 7),
+          ctx!.fillText(ln, cx, cy + j * lineHeight - (lines.length - 1) * (lineHeight / 2)),
         );
       });
 
@@ -168,10 +181,11 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
         ctx!.lineWidth = 2;
         ctx!.strokeStyle = inkStroke;
         ctx!.stroke();
-        ctx!.lineWidth = 3;
-        ctx!.strokeStyle = bgHalo;
         ctx!.font = "700 11px Inter, sans-serif";
-        ctx!.strokeText("Your submission", x, y - r - 8);
+        const labelW = ctx!.measureText("Your submission").width;
+        ctx!.fillStyle = bgPill;
+        roundRectPath(x - labelW / 2 - 6, y - r - 8 - 11, labelW + 12, 18, 5);
+        ctx!.fill();
         ctx!.fillStyle = inkColor;
         ctx!.fillText("Your submission", x, y - r - 8);
       }
