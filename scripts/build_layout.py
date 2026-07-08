@@ -64,13 +64,21 @@ def doc_text(article):
     # terms in TF-IDF and produce labels like "leaf, cihon" instead of a topic.
     if article["has_full_abstract"]:
         body = article["abstract"]
+        # A real abstract is much richer than the title - repeating the
+        # title 3x let generic academic phrasing ("a replication and
+        # extension of prior research") outweigh a specific, on-topic
+        # abstract for at least one observed case. Title still gets a
+        # single pass: it's a useful disambiguator, just not a dominant one
+        # when there's real body text to lean on.
+        title_weight = 1
     else:
         topics = " ".join(t["display_name"] for t in article.get("openalex_topics", []))
         keywords = " ".join(article.get("openalex_keywords", []))
         # No abstract text; lean harder on title repetition plus OpenAlex's
         # own topic/keyword tags as the substitute signal.
         body = " ".join([topics, topics, keywords])
-    return " ".join([(article["title"] + " ") * 3, body])
+        title_weight = 3
+    return " ".join([(article["title"] + " ") * title_weight, body])
 
 
 def build_tfidf(docs):
