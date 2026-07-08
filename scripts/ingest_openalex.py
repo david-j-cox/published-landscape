@@ -34,9 +34,11 @@ JOURNALS = [
 ]
 
 NOISE_TITLE_RE = re.compile(
-    r"^(issue information|front matter|back matter|cover|editorial board|"
-    r"guest eds? ?& ?revs? acknowledge?ment|call for (nominations|applications)|"
-    r"correction:?|correction to:|corrigendum|erratum)\b",
+    r"(issue information|front matter|back matter|cover|editorial board|"
+    r"guest eds? ?(?:&|&amp;) ?revs? acknowledge?ment|call for (nominations|applications)|"
+    r"correction:?|correction to:|corrigendum|erratum|"
+    r"guest reviewers?\b|reviewers? (?:and|&|&amp;) associate editors? list|"
+    r"reviewer list|acknowledge?ment of.*guest)",
     re.IGNORECASE,
 )
 
@@ -161,7 +163,7 @@ def main():
             # A handful of front-matter/administrative pages and corrections
             # are misclassified as type "article"/"review" in OpenAlex and
             # slip past the type:article|review filter above.
-            if not article["title"] or NOISE_TITLE_RE.match(article["title"].strip()):
+            if not article["title"] or NOISE_TITLE_RE.search(article["title"].strip()):
                 continue
             for a in article["authors"]:
                 all_authors.setdefault(a["id"], {
