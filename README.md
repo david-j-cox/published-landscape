@@ -9,7 +9,7 @@ places every article in a "topic space" by what it's actually about, and
 lets readers browse by theme and associate editors find reviewers by
 expertise instead of by memory.
 
-Current corpus: **4,095 articles**, **95.2% with a real abstract**, **7
+Current corpus: **4,048 articles**, **97.4% with a real abstract**, **7
 journals**, **45 topics**, **5,961 authors**.
 
 ## What's here
@@ -55,7 +55,7 @@ flowchart TB
     SP --> ENR
     ENR --> BLD
 
-    BLD --> CORPUS[("data/corpus.json<br/>4,095 articles + clusters + x/y")]
+    BLD --> CORPUS[("data/corpus.json<br/>4,048 articles + clusters + x/y")]
     BLD --> MODEL[("data/model.json<br/>vocab, IDF, SVD matrix,<br/>article vectors, centroids")]
 
     subgraph App["Next.js app - deployed on Vercel"]
@@ -94,7 +94,7 @@ sequenceDiagram
     U->>API: POST title + abstract
     API->>M: Load frozen vocab, IDF,<br/>SVD matrix, article vectors, centroids
     API->>API: Tokenize, build TF-IDF vector,<br/>project via SVD into a new 60-dim vector
-    API->>C: Cosine similarity vs all 4,095<br/>existing article vectors
+    API->>C: Cosine similarity vs all 4,048<br/>existing article vectors
     API->>API: Nearest neighbors, cluster vote,<br/>weighted x/y, reviewer ranking
     API-->>U: neighbors + reviewers + cluster + x/y
     U->>U: Show results, with an optional marker on /map
@@ -127,7 +127,7 @@ as ~10% for some). This script closes most of that gap in two passes:
    scraping their site (their `robots.txt` explicitly disallows AI-agent
    crawlers by name, so this deliberately goes through their API instead).
 
-This took overall abstract coverage from ~61% to 95.2%, and Behavior
+This took overall abstract coverage from ~61% to 97.4%, and Behavior
 Analysis in Practice specifically from ~10% to ~98%. The remainder (mostly
 tributes/errata with no abstract anywhere, or capped by Springer's 500/day
 free-tier quota on a given run) fall back to OpenAlex's own computed
@@ -162,7 +162,7 @@ indexed by OpenAlex/Crossref within a few days of publication.
    embedding - a two-level "island" layout (cluster centroids placed via
    classical MDS and pushed apart so they don't overlap, then each cluster's
    own members locally laid out around its centroid). A single global
-   MDS/t-SNE over 4,095 points tends to produce one soft continuous blob;
+   MDS/t-SNE over 4,048 points tends to produce one soft continuous blob;
    doing it per-cluster is what makes the map read as separated, legible
    topic islands instead.
 
@@ -180,7 +180,7 @@ vector, and each cluster's centroid) is frozen into `data/model.json` when
    tokenized, build a TF-IDF vector over the *existing* frozen vocabulary
    (no re-fitting), and project it through the *existing* frozen SVD matrix
    to get a 60-dim vector in the same space as everything else.
-2. Cosine-similarity that vector against all 4,095 existing article vectors
+2. Cosine-similarity that vector against all 4,048 existing article vectors
    (a few thousand dot products - milliseconds, no retraining).
 3. Assign a topic by similarity-weighted majority vote among the nearest
    neighbors (not nearest cluster centroid - centroid similarity can point
@@ -208,6 +208,23 @@ any push touching `demo/**` or `data/corpus.json`) so the landscape is
 viewable by anyone with a link, without needing Supabase or Vercel set up.
 It intentionally does not include the `/submit` placement feature or
 reviewer suggestions.
+
+## Deployment
+
+Both deploy targets redeploy automatically on push to `main` - nothing
+manual required for either one:
+
+- **Vercel** (the gated app) is connected via Vercel's native Git
+  integration (Project Settings > Git), so any push, including the
+  automated weekly data-refresh commit, triggers a new production
+  deployment on its own.
+- **GitHub Pages** (the static demo) redeploys via
+  `.github/workflows/deploy-demo.yml`, triggered on pushes touching
+  `demo/**` or `data/corpus.json`.
+
+So the weekly refresh (`refresh-data.yml`) commits new data once a week,
+and that single push fans out to both: Vercel picks it up natively, and it
+matches `deploy-demo.yml`'s path filter to redeploy the demo too.
 
 ## Running locally
 
