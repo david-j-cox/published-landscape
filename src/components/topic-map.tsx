@@ -3,13 +3,29 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
-import type { ArticleDetail, Cluster, MapPoint, PendingPlacement } from "@/lib/types";
+import type { ArticleDetail, Cluster, Journal, MapPoint, PendingPlacement } from "@/lib/types";
 
 const PALETTE = [
   "#6cc5ff", "#a98bff", "#5fd6a4", "#ffb454", "#ff7a9c", "#7ce0e0",
   "#c3a3ff", "#ffd166", "#8fd694", "#f4978e", "#9aa6bd",
 ];
 const colorOf = (clusterId: number) => PALETTE[clusterId % PALETTE.length];
+
+// Journal colors keyed by ISSN-L (stable across re-ingests, unlike the
+// enumerate-index journal ids in corpus.json).
+const JOURNAL_COLORS: Record<string, string> = {
+  "0022-5002": "#22c55e", // JEAB - green
+  "0021-8855": "#ef4444", // JABA - red
+  "1998-1929": "#eab308", // BAP - yellow
+  "2520-8969": "#9ca3af", // PoBS - gray
+  "0889-9401": "#3b82f6", // TAVB - blue
+  "0033-2933": "#a855f7", // TPR - purple
+  "1072-0847": "#f97316", // BI - orange
+  "2372-9414": "#f3ecc9", // BA:RP - warm off-white (yellow-tinted cream)
+};
+const FALLBACK_JOURNAL_COLOR = "#ec4899";
+
+type ColorMode = "topic" | "journal";
 
 // Sentinel id for the ephemeral "place a submission" marker (src/app/(app)/submit)
 // which isn't a real article, so it can't collide with a real OpenAlex id.
@@ -39,11 +55,21 @@ function wrapLabel(text: string, maxChars: number): string[] {
   return lines;
 }
 
-export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: Cluster[] }) {
+export function TopicMap({
+  points,
+  clusters,
+  journals,
+}: {
+  points: MapPoint[];
+  clusters: Cluster[];
+  journals: Journal[];
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [hiddenClusters, setHiddenClusters] = useState<Set<number>>(new Set());
+  const [hiddenJournals, setHiddenJournals] = useState<Set<number>>(new Set());
+  const [colorMode, setColorMode] = useState<ColorMode>("topic");
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const [detail, setDetail] = useState<ArticleDetail | null>(null);
   const detailLoading = Boolean(selected && selected.id !== PENDING_ID && detail?.id !== selected.id);
@@ -58,6 +84,17 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
   const hoveredRef = useRef<MapPoint | null>(null);
   const selectedRef = useRef<MapPoint | null>(null);
   const hiddenRef = useRef<Set<number>>(new Set());
+  const hiddenJournalsRef = useRef<Set<number>>(new Set());
+  const colorModeRef = useRef<ColorMode>("topic");
+
+  const journalColorById = new Map(
+    journals.map((j) => [j.id, JOURNAL_COLORS[j.issn_l] ?? FALLBACK_JOURNAL_COLOR]),
+  );
+  const journalColorOf = (journalId: number) =>
+    journalColorById.get(journalId) ?? FALLBACK_JOURNAL_COLOR;
+
+  const journalCounts = new Map<number, number>();
+  points.forEach((p) => journalCounts.set(p.journal_id, (journalCounts.get(p.journal_id) ?? 0) + 1));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -112,6 +149,26 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       ctx!.closePath();
     }
 
+    // The "you are here" pulse for a fresh placement: animates until the
+    // user clicks the marker, so it can't get lost among ~4k dots.
+    let pulsing = false;
+    let pulseRAF = 0;
+    function pulseLoop() {
+      draw();
+      if (pulsing) pulseRAF = requestAnimationFrame(pulseLoop);
+    }
+    function setPulse(on: boolean) {
+      if (pulsing === on) return;
+      pulsing = on;
+      cancelAnimationFrame(pulseRAF);
+      if (on) pulseRAF = requestAnimationFrame(pulseLoop);
+      else draw();
+    }
+
+    function hiddenPoint(d: MapPoint) {
+      return hiddenRef.current.has(d.cluster_id) || hiddenJournalsRef.current.has(d.journal_id);
+    }
+
     function draw() {
       const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       const bgPill = isDark ? "rgba(10,10,10,0.88)" : "rgba(250,250,250,0.88)";
@@ -128,14 +185,15 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       const lineHeight = 14;
 
       points.forEach((d) => {
-        if (hiddenRef.current.has(d.cluster_id)) return;
+        if (hiddenPoint(d)) return;
         const x = sx(d.x), y = sy(d.y);
         const on = d === hoveredRef.current || d === selectedRef.current;
         const r = 4.5 * (on ? 1.8 : 1);
         ctx!.beginPath();
         ctx!.arc(x, y, r, 0, Math.PI * 2);
         ctx!.globalAlpha = on ? 1 : 0.82;
-        ctx!.fillStyle = colorOf(d.cluster_id);
+        ctx!.fillStyle =
+          colorModeRef.current === "journal" ? journalColorOf(d.journal_id) : colorOf(d.cluster_id);
         ctx!.fill();
         if (on) {
           ctx!.lineWidth = 2;
@@ -159,7 +217,10 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
         ctx!.fillStyle = bgPill;
         roundRectPath(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 5);
         ctx!.fill();
-        ctx!.fillStyle = colorOf(c.id);
+        // In journal mode topic colors no longer mean anything, so labels
+        // fall back to neutral ink instead of the cluster hue.
+        ctx!.fillStyle =
+          colorModeRef.current === "journal" ? (isDark ? "#d4d4d4" : "#404040") : colorOf(c.id);
         lines.forEach((ln, j) =>
           ctx!.fillText(ln, cx, cy + j * lineHeight - (lines.length - 1) * (lineHeight / 2)),
         );
@@ -169,7 +230,21 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       if (pending) {
         const x = sx(pending.x), y = sy(pending.y);
         const on = hoveredRef.current?.id === PENDING_ID || selectedRef.current?.id === PENDING_ID;
-        const r = on ? 9 : 6.5;
+        const r = on ? 14 : 11;
+        if (pulsing) {
+          // Two expanding rings half a period apart, fading as they grow.
+          const t = (performance.now() % 1600) / 1600;
+          for (const phase of [0, 0.5]) {
+            const p = (t + phase) % 1;
+            ctx!.beginPath();
+            ctx!.arc(x, y, r + 3 + p * 34, 0, Math.PI * 2);
+            ctx!.strokeStyle = "#f59e0b";
+            ctx!.lineWidth = 2.5;
+            ctx!.globalAlpha = (1 - p) * 0.7;
+            ctx!.stroke();
+          }
+          ctx!.globalAlpha = 1;
+        }
         ctx!.beginPath();
         ctx!.moveTo(x, y - r);
         ctx!.lineTo(x + r, y);
@@ -196,12 +271,12 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       const pending = pendingRef.current?.point;
       if (pending) {
         const dist = Math.hypot(px - sx(pending.x), py - sy(pending.y));
-        if (dist < 14) return pending;
+        if (dist < 18) return pending;
       }
       let best: MapPoint | null = null;
       let bestD = 12;
       for (const d of points) {
-        if (hiddenRef.current.has(d.cluster_id)) continue;
+        if (hiddenPoint(d)) continue;
         const dist = Math.hypot(px - sx(d.x), py - sy(d.y));
         if (dist < bestD) {
           bestD = dist;
@@ -264,6 +339,7 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       if (hit) {
         selectedRef.current = hit;
         setSelected(hit);
+        if (hit.id === PENDING_ID) setPulse(false);
         draw();
       }
     }
@@ -303,8 +379,25 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       computeFit();
       draw();
     };
+    (canvas as unknown as { __setPulse?: (on: boolean) => void }).__setPulse = setPulse;
+    // Center + zoom the view on a world coordinate. The detail panel covers
+    // the left ~28rem, so on wide screens the target is centered in the
+    // visible remainder, not the full canvas.
+    (canvas as unknown as { __focusOn?: (wx: number, wy: number) => void }).__focusOn = (
+      wx: number,
+      wy: number,
+    ) => {
+      const fit = fitRef.current.scale;
+      const scale = Math.min(fit * 12, fit * 2.5);
+      const panelW = W() >= 768 ? 448 : 0;
+      viewRef.current.scale = scale;
+      viewRef.current.ox = panelW + (W() - panelW) / 2 - wx * scale;
+      viewRef.current.oy = H() / 2 + wy * scale;
+      draw();
+    };
 
     return () => {
+      cancelAnimationFrame(pulseRAF);
       canvas.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("mousemove", onMouseMove);
@@ -322,6 +415,18 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
     const canvas = canvasRef.current as (HTMLCanvasElement & { __redraw?: () => void }) | null;
     canvas?.__redraw?.();
   }, [hiddenClusters]);
+
+  useEffect(() => {
+    hiddenJournalsRef.current = hiddenJournals;
+    const canvas = canvasRef.current as (HTMLCanvasElement & { __redraw?: () => void }) | null;
+    canvas?.__redraw?.();
+  }, [hiddenJournals]);
+
+  useEffect(() => {
+    colorModeRef.current = colorMode;
+    const canvas = canvasRef.current as (HTMLCanvasElement & { __redraw?: () => void }) | null;
+    canvas?.__redraw?.();
+  }, [colorMode]);
 
   // One-shot: pick up a placement stashed by /submit's "View on topic map".
   useEffect(() => {
@@ -355,11 +460,24 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
     }
   }, []);
 
-  // Mirror `pending` into the ref the imperative canvas code reads, and redraw.
+  // Mirror `pending` into the ref the imperative canvas code reads. A fresh
+  // placement also gets focused and pulsed - it used to sit unannounced in
+  // the full-corpus view and was genuinely hard to spot.
   useEffect(() => {
     pendingRef.current = pending;
-    const canvas = canvasRef.current as (HTMLCanvasElement & { __redraw?: () => void }) | null;
-    canvas?.__redraw?.();
+    const canvas = canvasRef.current as
+      | (HTMLCanvasElement & {
+          __redraw?: () => void;
+          __focusOn?: (wx: number, wy: number) => void;
+          __setPulse?: (on: boolean) => void;
+        })
+      | null;
+    if (pending) {
+      canvas?.__focusOn?.(pending.point.x, pending.point.y);
+      canvas?.__setPulse?.(true);
+    } else {
+      canvas?.__redraw?.();
+    }
   }, [pending]);
 
   useEffect(() => {
@@ -392,8 +510,26 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
     });
   }
 
+  // Same solo behavior as toggleCluster, over journals.
+  function toggleJournal(id: number) {
+    setHiddenJournals((prev) => {
+      const isSoloed = journals.every((j) => (j.id === id ? !prev.has(j.id) : prev.has(j.id)));
+      if (isSoloed) return new Set();
+      return new Set(journals.map((j) => j.id).filter((jid) => jid !== id));
+    });
+  }
+
+  // Filters from the mode being left would keep hiding dots with no visible
+  // legend explaining why, so switching modes clears both.
+  function switchColorMode(mode: ColorMode) {
+    setColorMode(mode);
+    setHiddenClusters(new Set());
+    setHiddenJournals(new Set());
+  }
+
   function resetView() {
     setHiddenClusters(new Set());
+    setHiddenJournals(new Set());
     const canvas = canvasRef.current as (HTMLCanvasElement & { __resetView?: () => void }) | null;
     canvas?.__resetView?.();
   }
@@ -409,22 +545,57 @@ export function TopicMap({ points, clusters }: { points: MapPoint[]; clusters: C
       />
 
       <aside className="absolute right-3 top-3 z-10 max-h-[calc(100%-24px)] w-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
-        <div className="mb-2 font-semibold text-neutral-700 dark:text-neutral-300">Topics</div>
-        <ul className="flex flex-col gap-1">
-          {clusters.map((c) => (
-            <li
-              key={c.id}
-              onClick={() => toggleCluster(c.id)}
-              className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
-                hiddenClusters.has(c.id) ? "opacity-35" : ""
+        <div className="mb-2 flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
+          {(["topic", "journal"] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => switchColorMode(mode)}
+              className={`flex-1 py-1 font-semibold ${
+                colorMode === mode
+                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                  : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
               }`}
             >
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorOf(c.id) }} />
-              <span className="flex-1 text-neutral-700 dark:text-neutral-300">{c.label}</span>
-              <span className="text-neutral-400">{c.count}</span>
-            </li>
+              {mode === "topic" ? "Topics" : "Journals"}
+            </button>
           ))}
-        </ul>
+        </div>
+        {colorMode === "topic" ? (
+          <ul className="flex flex-col gap-1">
+            {clusters.map((c) => (
+              <li
+                key={c.id}
+                onClick={() => toggleCluster(c.id)}
+                className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                  hiddenClusters.has(c.id) ? "opacity-35" : ""
+                }`}
+              >
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorOf(c.id) }} />
+                <span className="flex-1 text-neutral-700 dark:text-neutral-300">{c.label}</span>
+                <span className="text-neutral-400">{c.count}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {journals.map((j) => (
+              <li
+                key={j.id}
+                onClick={() => toggleJournal(j.id)}
+                className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                  hiddenJournals.has(j.id) ? "opacity-35" : ""
+                }`}
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: journalColorOf(j.id) }}
+                />
+                <span className="flex-1 text-neutral-700 dark:text-neutral-300">{j.name}</span>
+                <span className="text-neutral-400">{journalCounts.get(j.id) ?? 0}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         <button
           onClick={resetView}
           className="mt-3 w-full rounded-md border border-neutral-300 py-1 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"

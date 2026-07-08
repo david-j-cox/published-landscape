@@ -105,7 +105,8 @@ sequenceDiagram
 **Journals** (`scripts/ingest_openalex.py`): Journal of Applied Behavior
 Analysis, Behavior Analysis in Practice, Behavioral Interventions, Journal
 of the Experimental Analysis of Behavior, Perspectives on Behavior Science,
-The Analysis of Verbal Behavior, The Psychological Record. The last 10 years
+The Analysis of Verbal Behavior, The Psychological Record, Behavior
+Analysis: Research and Practice. The last 10 years
 of each is pulled from the free [OpenAlex](https://openalex.org) API
 (title, authors, year, DOI, and abstract where OpenAlex has one), filtered
 to `type:article|review` and a title-pattern denylist (issue front matter,

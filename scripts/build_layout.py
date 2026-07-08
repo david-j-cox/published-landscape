@@ -3,7 +3,7 @@
 
 Same pure-numpy shape as the bds-lab-website approach (TF-IDF -> truncated
 SVD -> classical MDS -> clustering -> "topic islands" layout), scaled to a
-~4,000-article, 7-journal corpus and adapted for two data quirks here:
+~4,000-article, 8-journal corpus and adapted for two data quirks here:
 
   - No manual labels.json to override clustering (this corpus is too big to
     hand-label): clusters and their labels are fully derived from text.

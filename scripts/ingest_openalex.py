@@ -31,6 +31,8 @@ JOURNALS = [
     {"openalex_source_id": "S4210188225", "name": "Perspectives on Behavior Science", "issn_l": "2520-8969"},
     {"openalex_source_id": "S113178815", "name": "The Analysis of Verbal Behavior", "issn_l": "0889-9401"},
     {"openalex_source_id": "S92682373", "name": "The Psychological Record", "issn_l": "0033-2933"},
+    # Appended last so existing journal ids (enumerate index) stay stable.
+    {"openalex_source_id": "S4210228049", "name": "Behavior Analysis: Research and Practice", "issn_l": "2372-9414"},
 ]
 
 NOISE_TITLE_RE = re.compile(
