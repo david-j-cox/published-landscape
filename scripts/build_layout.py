@@ -19,6 +19,7 @@ O(n^3) and too slow past a few hundred articles.
 """
 import json
 import math
+import os
 import re
 import sys
 from collections import Counter
@@ -29,8 +30,8 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 
 ROOT = Path(__file__).resolve().parent.parent
-CORPUS = ROOT / "data" / "corpus.json"
-MODEL = ROOT / "data" / "model.json"
+CORPUS = Path(os.environ.get("CORPUS_PATH") or (ROOT / "data" / "corpus.json"))
+MODEL = Path(os.environ.get("MODEL_PATH") or (ROOT / "data" / "model.json"))
 K_CLUSTERS = int(sys.argv[1]) if len(sys.argv) > 1 else 45
 SVD_DIMS = 60
 SEED = 7
@@ -50,7 +51,28 @@ human humans participants participant model models modeling quantitative
 intro introduction special section issue chapter guide editorial editors
 supplementary contains material materials online available doi https www
 version unlabelled esm publisher published copyright information
+how has have such why what when where which who whom whose does did done had
+memoriam acknowledgment acknowledgement reviewers reviewer tribute obituary
+corrigendum erratum errata correction jack michael
 """.split())
+
+# Acronyms rendered fully uppercase in cluster labels (lower-cased keys).
+LABEL_ACRONYMS = set("""
+irap aba asd bst act gbg rird high-p
+""".split())
+
+
+def format_label(terms):
+    """Present a cluster label: capitalize the first term, uppercase acronyms."""
+    out = []
+    for i, term in enumerate(terms):
+        if term.lower() in LABEL_ACRONYMS:
+            out.append(term.upper())
+        elif i == 0 and term:
+            out.append(term[0].upper() + term[1:])
+        else:
+            out.append(term)
+    return ", ".join(out)
 
 
 def tokenize(text):
@@ -222,7 +244,7 @@ def cluster_labels(X_tfidf, vocab, labels, k, top=4):
             terms.append(term)
             if len(terms) == top:
                 break
-        out[j] = ", ".join(terms)
+        out[j] = format_label(terms)
     return out
 
 

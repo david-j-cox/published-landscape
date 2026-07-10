@@ -11,6 +11,7 @@ scripts/load_supabase.py can push the same file into Postgres once a
 Supabase project exists.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -18,7 +19,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "data" / "corpus.json"
+# CORPUS_PATH lets a caller target a work-copy (for an atomic swap) instead of
+# clobbering the live corpus mid-run.
+OUT = Path(os.environ.get("CORPUS_PATH") or (ROOT / "data" / "corpus.json"))
 CONTACT_EMAIL = "cox.david.j@gmail.com"  # OpenAlex "polite pool" identification
 YEARS_BACK = 10
 
@@ -33,6 +36,8 @@ JOURNALS = [
     {"openalex_source_id": "S92682373", "name": "The Psychological Record", "issn_l": "0033-2933"},
     # Appended last so existing journal ids (enumerate index) stay stable.
     {"openalex_source_id": "S4210228049", "name": "Behavior Analysis: Research and Practice", "issn_l": "2372-9414"},
+    {"openalex_source_id": "S2764486203", "name": "Behavior and Social Issues", "issn_l": "1064-9506"},
+    {"openalex_source_id": "S144739066", "name": "Education and Treatment of Children", "issn_l": "0748-8491"},
 ]
 
 NOISE_TITLE_RE = re.compile(
@@ -155,8 +160,26 @@ def normalize_work(work, journal_id):
 
 
 def main():
-    all_articles = []
-    all_authors = {}
+    # Incremental by design: load whatever corpus already exists and only ADD
+    # newly-published articles. Existing records are never overwritten - in
+    # particular, abstracts backfilled by enrich_missing_abstracts.py (which
+    # OpenAlex itself usually lacks) must survive a re-run. A full rebuild is
+    # opt-in via FRESH=1 for the rare case the schema/journal set changes.
+    fresh = os.environ.get("FRESH") == "1"
+    existing = None
+    if OUT.exists() and not fresh:
+        try:
+            existing = json.loads(OUT.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"warning: could not read existing corpus ({e}); rebuilding fresh", file=sys.stderr)
+
+    # articles keyed by id; values are shared with `articles` so in-place
+    # abstract fills below are reflected in the written list.
+    articles = list(existing["articles"]) if existing else []
+    by_id = {a["id"]: a for a in articles}
+    authors = {au["id"]: au for au in (existing["authors"] if existing else [])}
+
+    added = filled = 0
     for journal_id, journal in enumerate(JOURNALS):
         print(f"Fetching {journal['name']} ({journal['openalex_source_id']})...", file=sys.stderr)
         works = fetch_all(journal["openalex_source_id"])
@@ -168,23 +191,38 @@ def main():
             if not article["title"] or NOISE_TITLE_RE.search(article["title"].strip()):
                 continue
             for a in article["authors"]:
-                all_authors.setdefault(a["id"], {
+                authors.setdefault(a["id"], {
                     "id": a["id"], "display_name": a["display_name"], "orcid": a["orcid"],
                 })
-            all_articles.append(article)
+            cur = by_id.get(article["id"])
+            if cur is None:
+                articles.append(article)
+                by_id[article["id"]] = article
+                added += 1
+            elif not cur.get("has_full_abstract") and article["has_full_abstract"]:
+                # Only ever UPGRADE: fill an abstract we didn't have. Never
+                # replace an existing (possibly backfilled) one, and never
+                # touch layout fields (x/y/cluster_id) already computed.
+                cur["abstract"] = article["abstract"]
+                cur["has_full_abstract"] = True
+                filled += 1
 
-    n_with_abstract = sum(1 for a in all_articles if a["has_full_abstract"])
+    n_with_abstract = sum(1 for a in articles if a["has_full_abstract"])
     corpus = {
         "generated_at": today_iso(),
         "journals": [{**j, "id": i} for i, j in enumerate(JOURNALS)],
-        "authors": list(all_authors.values()),
-        "articles": all_articles,
+        "authors": list(authors.values()),
+        "articles": articles,
     }
+    # Preserve existing clusters so the corpus stays app-valid until
+    # build_layout.py recomputes them for the merged set.
+    if existing and "clusters" in existing:
+        corpus["clusters"] = existing["clusters"]
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(corpus, indent=2, ensure_ascii=False))
     print(
-        f"articles={len(all_articles)} (abstracts={n_with_abstract}) "
-        f"authors={len(all_authors)} -> {OUT}",
+        f"added={added} abstracts_filled={filled} total={len(articles)} "
+        f"(abstracts={n_with_abstract}) authors={len(authors)} -> {OUT}",
         file=sys.stderr,
     )
 

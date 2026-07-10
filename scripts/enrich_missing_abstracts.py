@@ -16,6 +16,7 @@ Verified both return the exact same abstract text as the publisher page
 before writing this. Marks each backfilled article with "abstract_source"
 for provenance/debugging.
 """
+import datetime
 import json
 import os
 import re
@@ -27,7 +28,7 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-CORPUS = ROOT / "data" / "corpus.json"
+CORPUS = Path(os.environ.get("CORPUS_PATH") or (ROOT / "data" / "corpus.json"))
 CONTACT_EMAIL = "cox.david.j@gmail.com"
 
 NCBI_SLEEP = 0.35  # E-utilities allows 3 req/sec without an API key
@@ -35,6 +36,28 @@ SPRINGER_SLEEP = 0.65  # observed free-tier limit: 100/min, 500/day
 
 SPRINGER_META_KEY = os.environ.get("SPRINGER_META_API_KEY")
 SPRINGER_DAILY_CAP = 480  # stay under the 500/day free-tier limit
+
+# Most misses are permanent - the source simply doesn't carry an abstract for
+# that article - so re-attempting every failed DOI on every weekly run just
+# burns the Springer daily quota (and NCBI time) on known dead ends. Record the
+# date of a failed attempt and don't retry until this cooldown lapses; recent
+# articles still get another chance later (PubMed sometimes indexes an abstract
+# weeks after publication). RETRY_FAILED=1 forces a full re-attempt.
+ABSTRACT_RETRY_COOLDOWN_DAYS = int(os.environ.get("ABSTRACT_RETRY_COOLDOWN_DAYS", "45"))
+RETRY_FAILED = os.environ.get("RETRY_FAILED") == "1"
+
+
+def recently_attempted(article):
+    if RETRY_FAILED:
+        return False
+    ts = article.get("abstract_attempted")
+    if not ts:
+        return False
+    try:
+        attempted = datetime.date.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return True  # malformed marker: treat as attempted, skip
+    return (datetime.date.today() - attempted).days < ABSTRACT_RETRY_COOLDOWN_DAYS
 
 
 def doi_of(article):
@@ -97,8 +120,14 @@ def springer_abstract(doi, budget):
 
 def main():
     corpus = json.loads(CORPUS.read_text())
-    missing = [a for a in corpus["articles"] if not a["has_full_abstract"] and a.get("doi")]
-    print(f"{len(missing)} articles missing an abstract", file=sys.stderr)
+    candidates = [a for a in corpus["articles"] if not a["has_full_abstract"] and a.get("doi")]
+    missing = [a for a in candidates if not recently_attempted(a)]
+    skipped = len(candidates) - len(missing)
+    print(
+        f"{len(missing)} articles to attempt "
+        f"({skipped} skipped: failed within last {ABSTRACT_RETRY_COOLDOWN_DAYS}d)",
+        file=sys.stderr,
+    )
 
     springer_budget = [SPRINGER_DAILY_CAP]
     found_pubmed = found_springer = still_missing = 0
@@ -117,11 +146,15 @@ def main():
             article["abstract"] = abstract
             article["has_full_abstract"] = True
             article["abstract_source"] = source
+            article.pop("abstract_attempted", None)  # succeeded; clear any stale marker
             if source == "pubmed":
                 found_pubmed += 1
             else:
                 found_springer += 1
         else:
+            # Record the failed attempt so future runs honor the cooldown
+            # instead of re-burning quota on this DOI.
+            article["abstract_attempted"] = datetime.date.today().isoformat()
             still_missing += 1
 
         if (i + 1) % 50 == 0:
