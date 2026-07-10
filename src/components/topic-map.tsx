@@ -22,8 +22,15 @@ const JOURNAL_COLORS: Record<string, string> = {
   "0033-2933": "#a855f7", // TPR - purple
   "1072-0847": "#f97316", // BI - orange
   "2372-9414": "#f3ecc9", // BA:RP - warm off-white (yellow-tinted cream)
+  "1064-9506": "#ec4899", // BSI - pink
+  "0748-8491": "#000000", // ETC - black (drawn with a white outline so it reads on the dark map)
 };
-const FALLBACK_JOURNAL_COLOR = "#ec4899";
+const FALLBACK_JOURNAL_COLOR = "#ec4899"; // any future unmapped journal
+
+// Journals whose fill needs a permanent outline to stay visible (e.g. black on the dark map).
+const JOURNAL_STROKES: Record<string, string> = {
+  "0748-8491": "#ffffff", // ETC - white ring around the black dot
+};
 
 type ColorMode = "topic" | "journal";
 
@@ -92,6 +99,10 @@ export function TopicMap({
   );
   const journalColorOf = (journalId: number) =>
     journalColorById.get(journalId) ?? FALLBACK_JOURNAL_COLOR;
+  const journalStrokeById = new Map(
+    journals.map((j) => [j.id, JOURNAL_STROKES[j.issn_l]]),
+  );
+  const journalStrokeOf = (journalId: number) => journalStrokeById.get(journalId);
 
   const journalCounts = new Map<number, number>();
   points.forEach((p) => journalCounts.set(p.journal_id, (journalCounts.get(p.journal_id) ?? 0) + 1));
@@ -195,9 +206,15 @@ export function TopicMap({
         ctx!.fillStyle =
           colorModeRef.current === "journal" ? journalColorOf(d.journal_id) : colorOf(d.cluster_id);
         ctx!.fill();
+        const journalStroke =
+          colorModeRef.current === "journal" ? journalStrokeOf(d.journal_id) : undefined;
         if (on) {
           ctx!.lineWidth = 2;
           ctx!.strokeStyle = "#fff";
+          ctx!.stroke();
+        } else if (journalStroke) {
+          ctx!.lineWidth = 1.5;
+          ctx!.strokeStyle = journalStroke;
           ctx!.stroke();
         }
         ctx!.globalAlpha = 1;
@@ -588,7 +605,10 @@ export function TopicMap({
               >
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ background: journalColorOf(j.id) }}
+                  style={{
+                    background: journalColorOf(j.id),
+                    boxShadow: journalStrokeOf(j.id) ? `0 0 0 1px ${journalStrokeOf(j.id)}` : undefined,
+                  }}
                 />
                 <span className="flex-1 text-neutral-700 dark:text-neutral-300">{j.name}</span>
                 <span className="text-neutral-400">{journalCounts.get(j.id) ?? 0}</span>
