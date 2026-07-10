@@ -1,0 +1,28 @@
+name: CI
+
+# Validates work on dev (and any PR into main) before it can be merged and
+# deployed. main deploys automatically via Vercel + deploy-demo.yml, so the
+# gate lives on dev and on the dev -> main pull request.
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
