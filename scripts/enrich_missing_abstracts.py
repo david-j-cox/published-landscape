@@ -23,6 +23,7 @@ import re
 import sys
 import time
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 
 import requests
@@ -33,6 +34,9 @@ CONTACT_EMAIL = "cox.david.j@gmail.com"
 
 NCBI_SLEEP = 0.35  # E-utilities allows 3 req/sec without an API key
 SPRINGER_SLEEP = 0.65  # observed free-tier limit: 100/min, 500/day
+CROSSREF_SLEEP = 0.5  # polite pool (identified via mailto)
+EUROPEPMC_SLEEP = 0.35
+SEMANTIC_SCHOLAR_SLEEP = 1.1  # unauthenticated shared pool is ~1 req/sec
 
 SPRINGER_META_KEY = os.environ.get("SPRINGER_META_API_KEY")
 SPRINGER_DAILY_CAP = 480  # stay under the 500/day free-tier limit
@@ -118,6 +122,61 @@ def springer_abstract(doi, budget):
     return abstract.strip() if abstract else None
 
 
+def _clean_abstract(text):
+    if not text:
+        return None
+    text = re.sub(r"<[^>]+>", " ", text)  # strip JATS/HTML tags (Crossref is JATS)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"^abstract[\s:.-]*", "", text, flags=re.IGNORECASE)  # drop leading heading
+    return text or None
+
+
+def crossref_abstract(doi):
+    # Crossref serves whatever abstract the publisher deposited (often present
+    # for APA/EPF titles like BA:RP that PubMed doesn't index). Free, keyless.
+    resp = requests.get(
+        f"https://api.crossref.org/works/{doi}",
+        params={"mailto": CONTACT_EMAIL},
+        timeout=20,
+    )
+    time.sleep(CROSSREF_SLEEP)
+    if not resp.ok:
+        return None
+    return _clean_abstract(resp.json().get("message", {}).get("abstract"))
+
+
+def europepmc_abstract(doi):
+    # Broader index than NCBI E-utilities; catches records our PubMed DOI match
+    # misses. Verify the returned record's own DOI before trusting it.
+    resp = requests.get(
+        "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+        params={"query": f'DOI:"{doi}"', "resultType": "core", "format": "json"},
+        timeout=20,
+    )
+    time.sleep(EUROPEPMC_SLEEP)
+    if not resp.ok:
+        return None
+    for r in resp.json().get("resultList", {}).get("result", []):
+        if (r.get("doi") or "").lower() == doi.lower() and r.get("abstractText"):
+            return _clean_abstract(r["abstractText"])
+    return None
+
+
+def semanticscholar_abstract(doi):
+    # Semantic Scholar Academic Graph carries abstracts for a large fraction of
+    # the literature. Unauthenticated is fine at this volume (404=not indexed,
+    # 429=rate-limited - both just fall through to the next source).
+    resp = requests.get(
+        f"https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}",
+        params={"fields": "abstract"},
+        timeout=20,
+    )
+    time.sleep(SEMANTIC_SCHOLAR_SLEEP)
+    if not resp.ok:
+        return None
+    return _clean_abstract(resp.json().get("abstract"))
+
+
 def main():
     corpus = json.loads(CORPUS.read_text())
     candidates = [a for a in corpus["articles"] if not a["has_full_abstract"] and a.get("doi")]
@@ -130,48 +189,59 @@ def main():
     )
 
     springer_budget = [SPRINGER_DAILY_CAP]
-    found_pubmed = found_springer = still_missing = 0
+    found = Counter()
+    still_missing = 0
+
+    # Free/sanctioned sources first; Springer last since it's daily-quota-capped.
+    # Each is wrapped so a transient timeout on one source falls through to the
+    # next instead of aborting the whole run.
+    sources = [
+        ("pubmed", lambda doi: pubmed_abstract(doi)),
+        ("crossref", lambda doi: crossref_abstract(doi)),
+        ("europepmc", lambda doi: europepmc_abstract(doi)),
+        ("semantic_scholar", lambda doi: semanticscholar_abstract(doi)),
+        ("springer_meta", lambda doi: springer_abstract(doi, springer_budget)),
+    ]
 
     for i, article in enumerate(missing):
         doi = doi_of(article)
         if not doi:
             still_missing += 1
             continue
-        abstract = pubmed_abstract(doi)
-        source = "pubmed"
-        if not abstract:
-            abstract = springer_abstract(doi, springer_budget)
-            source = "springer_meta"
+        abstract = source = None
+        for name, fetch in sources:
+            try:
+                abstract = fetch(doi)
+            except requests.RequestException as e:
+                print(f"  {name} error for {doi}: {e}", file=sys.stderr)
+                abstract = None
+            if abstract:
+                source = name
+                break
         if abstract:
             article["abstract"] = abstract
             article["has_full_abstract"] = True
             article["abstract_source"] = source
             article.pop("abstract_attempted", None)  # succeeded; clear any stale marker
-            if source == "pubmed":
-                found_pubmed += 1
-            else:
-                found_springer += 1
+            found[source] += 1
         else:
             # Record the failed attempt so future runs honor the cooldown
             # instead of re-burning quota on this DOI.
             article["abstract_attempted"] = datetime.date.today().isoformat()
             still_missing += 1
 
-        if (i + 1) % 50 == 0:
+        if (i + 1) % 25 == 0:
+            tally = " ".join(f"{k}={v}" for k, v in sorted(found.items()))
             print(
-                f"  {i + 1}/{len(missing)} processed - pubmed={found_pubmed} "
-                f"springer={found_springer} still_missing={still_missing} "
-                f"(springer budget left={springer_budget[0]})",
+                f"  {i + 1}/{len(missing)} processed - {tally or 'found=0'} "
+                f"still_missing={still_missing} (springer budget left={springer_budget[0]})",
                 file=sys.stderr,
             )
             CORPUS.write_text(json.dumps(corpus, indent=2, ensure_ascii=False))
 
     CORPUS.write_text(json.dumps(corpus, indent=2, ensure_ascii=False))
-    print(
-        f"done: pubmed={found_pubmed} springer={found_springer} "
-        f"still_missing={still_missing} -> {CORPUS}",
-        file=sys.stderr,
-    )
+    tally = " ".join(f"{k}={v}" for k, v in sorted(found.items()))
+    print(f"done: {tally or 'found=0'} still_missing={still_missing} -> {CORPUS}", file=sys.stderr)
 
 
 if __name__ == "__main__":
