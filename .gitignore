@@ -40,6 +40,9 @@ yarn-error.log*
 # local Claude Code session state
 /.claude/
 
+# local-only pricing / cost docs (never publish to the public repo)
+/docs/
+
 # python
 __pycache__/
 *.pyc
