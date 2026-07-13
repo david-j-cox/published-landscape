@@ -10,12 +10,20 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
+      # Check out with a PAT (not the default GITHUB_TOKEN) so that the pull
+      # request this job opens actually triggers ci.yml. GitHub deliberately
+      # suppresses workflow runs for events raised by GITHUB_TOKEN, which would
+      # otherwise leave the required "build" check pending forever and stall the
+      # auto-merge below. REFRESH_PAT: fine-grained PAT, contents + PRs: write.
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REFRESH_PAT }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -26,14 +34,30 @@ jobs:
           SPRINGER_META_API_KEY: ${{ secrets.SPRINGER_META_API_KEY }}
         run: python3 scripts/enrich_missing_abstracts.py
       - run: python3 scripts/build_layout.py
-      - name: Commit updated corpus if changed
+      # main is a protected branch (changes must go through a PR that passes the
+      # "build" check), so this job can't push to it directly. Instead it opens a
+      # PR from a throwaway branch and enables auto-merge: once ci.yml's build
+      # goes green the PR squash-merges itself, and delete_branch_on_merge cleans
+      # up the branch. No changes -> no PR.
+      - name: Open PR with refreshed corpus if changed
+        env:
+          GH_TOKEN: ${{ secrets.REFRESH_PAT }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet -- data/corpus.json data/model.json; then
-            git add data/corpus.json data/model.json
-            git commit -m "Refresh article corpus from OpenAlex ($(date -u +%Y-%m-%d))"
-            git push
-          else
+          if git diff --quiet -- data/corpus.json data/model.json; then
             echo "No changes to data/corpus.json or data/model.json"
+            exit 0
           fi
+          DATE="$(date -u +%Y-%m-%d)"
+          BRANCH="data-refresh-$(date -u +%Y%m%d-%H%M%S)"
+          git switch -c "$BRANCH"
+          git add data/corpus.json data/model.json
+          git commit -m "Refresh article corpus from OpenAlex ($DATE)"
+          git push origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Refresh article corpus from OpenAlex ($DATE)" \
+            --body "Automated weekly refresh from OpenAlex. Auto-merges once the build check passes."
+          gh pr merge "$BRANCH" --auto --squash --delete-branch
