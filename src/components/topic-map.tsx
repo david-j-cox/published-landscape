@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
 import type { ArticleDetail, Cluster, Journal, MapPoint, PendingPlacement } from "@/lib/types";
+import { YearRangeSlider } from "@/components/year-range-slider";
 
 const PALETTE = [
   "#6cc5ff", "#a98bff", "#5fd6a4", "#ffb454", "#ff7a9c", "#7ce0e0",
@@ -81,6 +82,13 @@ export function TopicMap({
   const [hiddenClusters, setHiddenClusters] = useState<Set<number>>(new Set());
   const [hiddenJournals, setHiddenJournals] = useState<Set<number>>(new Set());
   const [colorMode, setColorMode] = useState<ColorMode>("topic");
+  // Year range filter over the whole map. Bounds come from the data; default
+  // spans everything (i.e. no filtering until the user narrows it).
+  const mapYears = points.map((p) => p.year).filter((y): y is number => y != null);
+  const minYear = mapYears.length ? Math.min(...mapYears) : 0;
+  const maxYear = mapYears.length ? Math.max(...mapYears) : 0;
+  const [yearRange, setYearRange] = useState<[number, number]>([minYear, maxYear]);
+  const yearRangeRef = useRef<[number, number]>([minYear, maxYear]);
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const [detail, setDetail] = useState<ArticleDetail | null>(null);
   const detailLoading = Boolean(selected && selected.id !== PENDING_ID && detail?.id !== selected.id);
@@ -181,7 +189,15 @@ export function TopicMap({
     }
 
     function hiddenPoint(d: MapPoint) {
-      return hiddenRef.current.has(d.cluster_id) || hiddenJournalsRef.current.has(d.journal_id);
+      if (hiddenRef.current.has(d.cluster_id) || hiddenJournalsRef.current.has(d.journal_id))
+        return true;
+      // Year filter: only applies once the range is narrowed from full extent,
+      // so undated points stay visible in the default (unfiltered) view.
+      const [ylo, yhi] = yearRangeRef.current;
+      if (ylo > minYear || yhi < maxYear) {
+        if (d.year == null || d.year < ylo || d.year > yhi) return true;
+      }
+      return false;
     }
 
     function draw() {
@@ -449,6 +465,12 @@ export function TopicMap({
     canvas?.__redraw?.();
   }, [colorMode]);
 
+  useEffect(() => {
+    yearRangeRef.current = yearRange;
+    const canvas = canvasRef.current as (HTMLCanvasElement & { __redraw?: () => void }) | null;
+    canvas?.__redraw?.();
+  }, [yearRange]);
+
   // One-shot: pick up a placement stashed by /submit's "View on topic map".
   useEffect(() => {
     const raw = sessionStorage.getItem(PLACEMENT_STORAGE_KEY);
@@ -551,6 +573,7 @@ export function TopicMap({
   function resetView() {
     setHiddenClusters(new Set());
     setHiddenJournals(new Set());
+    setYearRange([minYear, maxYear]);
     const canvas = canvasRef.current as (HTMLCanvasElement & { __resetView?: () => void }) | null;
     canvas?.__resetView?.();
   }
@@ -581,6 +604,11 @@ export function TopicMap({
             </button>
           ))}
         </div>
+        {maxYear > minYear && (
+          <div className="mb-2 border-b border-neutral-200 pb-2.5 dark:border-neutral-800">
+            <YearRangeSlider min={minYear} max={maxYear} value={yearRange} onChange={setYearRange} />
+          </div>
+        )}
         {colorMode === "topic" ? (
           <ul className="flex flex-col gap-1">
             {clusters.map((c) => (
