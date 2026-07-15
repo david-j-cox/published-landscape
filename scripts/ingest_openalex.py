@@ -38,6 +38,7 @@ JOURNALS = [
     {"openalex_source_id": "S4210228049", "name": "Behavior Analysis: Research and Practice", "issn_l": "2372-9414"},
     {"openalex_source_id": "S2764486203", "name": "Behavior and Social Issues", "issn_l": "1064-9506"},
     {"openalex_source_id": "S144739066", "name": "Education and Treatment of Children", "issn_l": "0748-8491"},
+    {"openalex_source_id": "S128158437", "name": "Behavioural Processes", "issn_l": "0376-6357"},
 ]
 
 NOISE_TITLE_RE = re.compile(
