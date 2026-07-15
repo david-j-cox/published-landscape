@@ -24,12 +24,16 @@ const JOURNAL_COLORS: Record<string, string> = {
   "2372-9414": "#f3ecc9", // BA:RP - warm off-white (yellow-tinted cream)
   "1064-9506": "#ec4899", // BSI - pink
   "0748-8491": "#000000", // ETC - black (drawn with a white outline so it reads on the dark map)
+  "0376-6357": "#228b22", // Behavioural Processes - forest green (white outline)
+  "1053-0819": "#1e3a8a", // Journal of Behavioral Education - navy blue (white outline)
 };
 const FALLBACK_JOURNAL_COLOR = "#ec4899"; // any future unmapped journal
 
 // Journals whose fill needs a permanent outline to stay visible (e.g. black on the dark map).
 const JOURNAL_STROKES: Record<string, string> = {
   "0748-8491": "#ffffff", // ETC - white ring around the black dot
+  "0376-6357": "#ffffff", // Behavioural Processes - white ring
+  "1053-0819": "#ffffff", // Journal of Behavioral Education - white ring
 };
 
 type ColorMode = "topic" | "journal";
@@ -202,7 +206,7 @@ export function TopicMap({
         const r = 4.5 * (on ? 1.8 : 1);
         ctx!.beginPath();
         ctx!.arc(x, y, r, 0, Math.PI * 2);
-        ctx!.globalAlpha = on ? 1 : 0.82;
+        ctx!.globalAlpha = on ? 1 : 0.3;
         ctx!.fillStyle =
           colorModeRef.current === "journal" ? journalColorOf(d.journal_id) : colorOf(d.cluster_id);
         ctx!.fill();
