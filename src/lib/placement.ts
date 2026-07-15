@@ -97,11 +97,24 @@ export type PlacementResult = {
   matchedTermCount: number;
 };
 
+// Optional narrowing for the displayed "nearest articles" only. When set, the
+// neighbor list is re-ranked over the whole corpus WITHIN the filter (so a
+// rare journal+year still surfaces its genuinely most-similar papers, not just
+// whichever happened to land in the overall top-K). Cluster/xy placement and
+// the reviewer pool deliberately ignore these - placement must stay stable
+// regardless of the filter, and reviewers should be drawn from the full field.
+export type PlacementFilters = {
+  yearMin?: number;
+  yearMax?: number;
+  journalId?: number;
+};
+
 export function placeArticle(
   title: string,
   abstract: string,
   topK = 10,
   reviewerPoolSize = 30,
+  filters: PlacementFilters = {},
 ): PlacementResult {
   const latent = projectToLatent(title, abstract);
   const matchedTermCount = tokenize(`${title} ${title} ${title} ${abstract}`).filter((t) =>
@@ -136,7 +149,24 @@ export function placeArticle(
   }
   const clusterSims = model.cluster_centroids.map((c) => dot(c, latent));
 
-  const neighbors = order.map((i) => toNeighbor(articles[i], sims[i]));
+  // Neighbors: when a year/journal filter is active, re-rank the ENTIRE corpus
+  // within the filter (not just the unfiltered top-K) so the closest matches in
+  // that slice always surface. With no filter this is exactly `order`.
+  const { yearMin, yearMax, journalId } = filters;
+  const filtered = yearMin !== undefined || yearMax !== undefined || journalId !== undefined;
+  const neighborOrder = filtered
+    ? [...sims.keys()]
+        .filter((i) => {
+          const a = articles[i];
+          if (journalId !== undefined && a.journal_id !== journalId) return false;
+          if (yearMin !== undefined && (a.year == null || a.year < yearMin)) return false;
+          if (yearMax !== undefined && (a.year == null || a.year > yearMax)) return false;
+          return true;
+        })
+        .sort((a, b) => sims[b] - sims[a])
+        .slice(0, topK)
+    : order;
+  const neighbors = neighborOrder.map((i) => toNeighbor(articles[i], sims[i]));
 
   const topForXY = order.slice(0, 8);
   let wx = 0, wy = 0, wsum = 0;
