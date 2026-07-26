@@ -25,6 +25,8 @@ journals**, **45 topics**, **5,961 authors**.
   DOI links to find corresponding-author contact info), and view it as a
   marker on the topic map. PDF text never leaves the browser - only the
   extracted/edited text does.
+- **Admin** (`/admin`, admins only) - who has an account, their role, when
+  they last signed in, and a log of recent sign-ins; invite and remove people.
 - Whole site is gated behind Supabase Auth (invite-only magic link) - see
   [Auth setup](#auth-setup).
 
@@ -244,19 +246,46 @@ The whole site is gated behind Supabase Auth (invite-only magic link - no
 public signup). To turn it on:
 
 1. Create a free project at [supabase.com/dashboard](https://supabase.com/dashboard).
-2. In the SQL Editor, run the three files in `supabase/migrations/` in order.
+2. In the SQL Editor, run the files in `supabase/migrations/` in order. There
+   is no direct-connection host for newer Supabase projects, so `psql` from a
+   laptop needs the exact string from Project Settings > Database; the SQL
+   Editor is the path of least resistance for DDL.
 3. In Project Settings, copy the Project URL, `anon`/publishable key, and
-   `service_role`/secret key into `.env.local` (see `.env.local.example`).
+   `service_role`/secret key into `.env.local` (see `.env.local.example`). The
+   `service_role` key must also be set in the Vercel project's environment
+   variables - without it `/admin` returns 404 to everyone, including admins
+   (with a `console.warn` explaining why, since the symptom is otherwise
+   inscrutable).
 4. In Authentication > URL Configuration, set Site URL to your deployed URL
    and add `<your-url>/auth/confirm` (and `http://localhost:3000/auth/confirm`
    for local dev) to Redirect URLs - Supabase's own default Site URL
    (`localhost:3000`) otherwise silently overrides the redirect you ask for.
-5. Invite yourself and any AEs/reviewers under Authentication > Users >
-   Invite user. Promote an account to admin/editor via:
+5. Promote your own account to admin. This one has to happen in SQL: `/admin`
+   is the place to manage roles, but only an admin can reach it, so the first
+   admin can't be made there.
    `update profiles set role = 'admin' where email = 'you@example.com';`
-6. Optionally configure custom SMTP (Authentication > Emails > SMTP
+6. From then on, invite people from `/admin` (or Authentication > Users >
+   Invite user).
+7. Optionally configure custom SMTP (Authentication > Emails > SMTP
    Settings) so invite/magic-link emails send from your own domain instead
    of Supabase's rate-limited shared sender.
+
+### Roles
+
+`profiles.role` is one of `reviewer`, `editor`, or `admin`. Only `admin` gates
+anything today: it controls access to `/admin`. `editor` exists for the
+associate-editor workflow but is not yet checked anywhere.
+
+`/admin` reads sign-in times from `auth.users` (all time) and a per-sign-in log
+from `login_events`, which the app writes itself. Supabase's own
+`auth.audit_log_entries` records the same events but is pruned on a rolling
+window and isn't reachable from the REST API, so it can't answer questions
+about past quarters. `login_events` only covers sign-ins since migration 0004.
+
+Two deliberate limits in the panel: you can't change your own role or delete
+your own account (the one change that can lock the last admin out, recoverable
+only via SQL), and the role dropdown is uncontrolled - after a successful save
+it may keep displaying the previous value until the page is reloaded.
 
 See `supabase/README.md` for the condensed version of the same steps.
 
