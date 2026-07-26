@@ -1,3 +1,34 @@
+export const ROLES = ["reviewer", "editor", "admin"] as const;
+export type Role = (typeof ROLES)[number];
+
+export function isRole(value: string): value is Role {
+  return (ROLES as readonly string[]).includes(value);
+}
+
+export type LoginMethod = "password" | "magic_link" | "recovery";
+
+export type Viewer = { id: string; email: string; role: Role };
+
+export type ManagedUser = {
+  id: string;
+  email: string;
+  role: Role;
+  createdAt: string | null;
+  lastSignInAt: string | null;
+  /** False until the invitee follows their emailed link and sets a password. */
+  activated: boolean;
+  loginCount: number;
+};
+
+export type LoginEvent = {
+  id: number;
+  email: string;
+  method: LoginMethod;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+};
+
 export type Journal = {
   id: number;
   name: string;
