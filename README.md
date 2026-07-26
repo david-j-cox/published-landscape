@@ -272,9 +272,35 @@ public signup). To turn it on:
 
 ### Roles
 
-`profiles.role` is one of `reviewer`, `editor`, or `admin`. Only `admin` gates
-anything today: it controls access to `/admin`. `editor` exists for the
-associate-editor workflow but is not yet checked anywhere.
+`profiles.role` is one of `ae`, `eic`, or `admin`. Reviewers never sign in -
+they are people the tool *suggests*, not users - so there is no reviewer role.
+
+| Role | Map / articles / submit | `/admin` |
+| --- | --- | --- |
+| `admin` | all 12 journals | everyone; the only role that can delete accounts |
+| `eic` | all 12 journals | their own journal's AEs: invite, deactivate, reactivate |
+| `ae` | all 12 journals | no access |
+
+**Journal affiliation (`profiles.journal_id`) is an administrative boundary,
+not a content one.** Everyone browses all 12 journals; cross-journal reviewer
+discovery is the point of the tool, and capping an EiC to their own journal
+would mean a JABA editor could only ever be shown JABA authors. What
+`journal_id` decides is whose accounts an EiC can see and change. Admins have
+no journal; an EiC must have one (`profiles_eic_needs_journal`).
+
+`src/lib/users.ts` holds the one authority on this - `canManage()` and
+`assignableRoles()`. Both the page (what to render) and every Server Action
+(what to allow) call them, so the UI can't drift out of step with what's
+actually enforced. Actions also re-read the target's current role and journal
+from the database rather than trusting the submitted form, since a Server
+Action is reachable by direct POST.
+
+**Offboarding** is deactivation, not deletion: guest AEs rotate by special
+issue, so `profiles.active` frees a seat while keeping the person's history and
+reactivating is one click. It's enforced twice - the account is banned at the
+Supabase auth level so no new token is issued, and `(app)/layout.tsx` checks
+the flag so a user with an unexpired token drops out on their next page view.
+Deletion stays admin-only and is irreversible.
 
 `/admin` reads sign-in times from `auth.users` (all time) and a per-sign-in log
 from `login_events`, which the app writes itself. Supabase's own
@@ -282,10 +308,11 @@ from `login_events`, which the app writes itself. Supabase's own
 window and isn't reachable from the REST API, so it can't answer questions
 about past quarters. `login_events` only covers sign-ins since migration 0004.
 
-Two deliberate limits in the panel: you can't change your own role or delete
-your own account (the one change that can lock the last admin out, recoverable
-only via SQL), and the role dropdown is uncontrolled - after a successful save
-it may keep displaying the previous value until the page is reloaded.
+Two deliberate limits in the panel: you can't change your own role, deactivate
+yourself, or delete your own account (the changes that can lock the last admin
+out, recoverable only via SQL), and the role dropdown is uncontrolled - after a
+successful save it may keep displaying the previous value until the page is
+reloaded.
 
 See `supabase/README.md` for the condensed version of the same steps.
 

@@ -1,5 +1,13 @@
-export const ROLES = ["reviewer", "editor", "admin"] as const;
+// Reviewers are people the tool suggests, not people who sign in - so the
+// roles here are only the ones that get an account.
+export const ROLES = ["ae", "eic", "admin"] as const;
 export type Role = (typeof ROLES)[number];
+
+export const ROLE_LABELS: Record<Role, string> = {
+  ae: "Associate Editor",
+  eic: "Editor-in-Chief",
+  admin: "Admin",
+};
 
 export function isRole(value: string): value is Role {
   return (ROLES as readonly string[]).includes(value);
@@ -7,12 +15,21 @@ export function isRole(value: string): value is Role {
 
 export type LoginMethod = "password" | "magic_link" | "recovery";
 
-export type Viewer = { id: string; email: string; role: Role };
+export type Viewer = {
+  id: string;
+  email: string;
+  role: Role;
+  /** The journal an EiC administers. Null for admins and unassigned AEs. */
+  journalId: number | null;
+  active: boolean;
+};
 
 export type ManagedUser = {
   id: string;
   email: string;
   role: Role;
+  journalId: number | null;
+  active: boolean;
   createdAt: string | null;
   lastSignInAt: string | null;
   /** False until the invitee follows their emailed link and sets a password. */

@@ -27,9 +27,9 @@ export async function NavBar() {
           <Link href="/submit" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
             See where a new article lands
           </Link>
-          {viewer?.role === "admin" && (
+          {(viewer?.role === "admin" || viewer?.role === "eic") && (
             <Link href="/admin" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
-              Admin
+              {viewer.role === "admin" ? "Admin" : "Editors"}
             </Link>
           )}
         </nav>
