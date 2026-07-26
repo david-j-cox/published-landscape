@@ -2,11 +2,24 @@
 
 import { useActionState } from "react";
 import { inviteUser, type AdminState } from "./actions";
-import { ROLES } from "@/lib/types";
+import { ROLE_LABELS, type Journal, type Role } from "@/lib/types";
 
 const initialState: AdminState = { status: "idle" };
 
-export function InviteForm() {
+const fieldClass =
+  "rounded-md border border-neutral-300 px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900";
+
+export function InviteForm({
+  journals,
+  assignable,
+  canPickJournal,
+  fixedJournalId,
+}: {
+  journals: Journal[];
+  assignable: Role[];
+  canPickJournal: boolean;
+  fixedJournalId: number | null;
+}) {
   const [state, formAction, pending] = useActionState(inviteUser, initialState);
 
   return (
@@ -17,19 +30,31 @@ export function InviteForm() {
           name="email"
           required
           placeholder="name@university.edu"
-          className="min-w-56 flex-1 rounded-md border border-neutral-300 px-3 py-1.5 dark:border-neutral-700 dark:bg-neutral-900"
+          className={`min-w-56 flex-1 ${fieldClass} px-3`}
         />
-        <select
-          name="role"
-          defaultValue="reviewer"
-          className="rounded-md border border-neutral-300 px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-900"
-        >
-          {ROLES.map((role) => (
-            <option key={role} value={role}>
-              {role}
-            </option>
-          ))}
-        </select>
+        {assignable.length > 1 ? (
+          <select name="role" defaultValue="ae" className={fieldClass}>
+            {assignable.map((role) => (
+              <option key={role} value={role}>
+                {ROLE_LABELS[role]}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input type="hidden" name="role" value={assignable[0]} />
+        )}
+        {canPickJournal ? (
+          <select name="journalId" defaultValue="" className={fieldClass}>
+            <option value="">No journal</option>
+            {journals.map((journal) => (
+              <option key={journal.id} value={journal.id}>
+                {journal.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input type="hidden" name="journalId" value={fixedJournalId ?? ""} />
+        )}
         <button
           type="submit"
           disabled={pending}

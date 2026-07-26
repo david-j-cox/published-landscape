@@ -8,7 +8,7 @@ const initialState: LoginState = { status: "idle" };
 const inputClass =
   "rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700 dark:bg-neutral-900";
 
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({ next, deactivated }: { next: string; deactivated?: boolean }) {
   // Email is shared between the sign-in form and the reset form so it only
   // has to be typed once.
   const [email, setEmail] = useState("");
@@ -23,6 +23,12 @@ export function LoginForm({ next }: { next: string }) {
           Sign in with the email your editor invited you with.
         </p>
       </div>
+
+      {deactivated && (
+        <p className="-mt-3 rounded-md bg-amber-100 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+          Your access has ended. If this is a surprise, ask your Editor-in-Chief to reactivate you.
+        </p>
+      )}
 
       <form action={signInAction} className="flex flex-col gap-3">
         <input type="hidden" name="next" value={next} />
