@@ -1,12 +1,10 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/is-configured";
+import { getViewer } from "@/lib/users";
 import { signOut } from "@/app/logout/actions";
 
 export async function NavBar() {
-  const user = isSupabaseConfigured
-    ? (await (await createClient()).auth.getUser()).data.user
-    : null;
+  const viewer = await getViewer();
 
   return (
     <div>
@@ -29,10 +27,15 @@ export async function NavBar() {
           <Link href="/submit" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
             See where a new article lands
           </Link>
+          {viewer?.role === "admin" && (
+            <Link href="/admin" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
+              Admin
+            </Link>
+          )}
         </nav>
-        {user && (
+        {viewer && (
           <form action={signOut} className="flex items-center gap-3">
-            <span className="text-neutral-500">{user.email}</span>
+            <span className="text-neutral-500">{viewer.email}</span>
             <button type="submit" className="text-neutral-500 underline hover:text-neutral-900 dark:hover:text-neutral-100">
               Sign out
             </button>

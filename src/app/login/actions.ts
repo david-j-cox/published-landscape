@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { recordLogin } from "@/lib/supabase/login-events";
 
 export type LoginState = { status: "idle" | "sent" | "error"; message?: string };
 
@@ -20,7 +21,7 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     const invalid = error.code === "invalid_credentials" || /invalid login credentials/i.test(error.message);
@@ -31,6 +32,8 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
         : error.message,
     };
   }
+
+  if (data.user) await recordLogin(data.user, "password");
 
   // redirect throws, so it must live outside any try/catch.
   redirect(safeNext(formData.get("next")));
