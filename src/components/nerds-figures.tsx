@@ -416,11 +416,12 @@ export function LayoutFigure() {
         </g>
       </svg>
       <figcaption className={CAPTION}>
-        The same 395 articles, drawn from five topics plus a background sample. The 
-        projection on the left is from the published landscape and is what a single
-        multidimensional scaling of these articles produces. The five topics are all
-        in there, just overlapping. Laying out each topic around its own centroid is what
-        makes them separable by eye.
+        The same 395 articles, drawn from five topics plus a background sample. The panel
+        on the right holds the coordinates the landscape actually uses. The one on the
+        left is a real projection too, not a sketch. It is what a single multidimensional
+        scaling of these articles produces. The five topics are all in there, just
+        overlapping. Laying out each topic around its own centroid is what makes them
+        separable by eye.
       </figcaption>
     </figure>
   );
