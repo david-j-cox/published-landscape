@@ -29,12 +29,18 @@ export default function NerdsPage() {
       <div className="mt-8 space-y-5 text-base leading-relaxed text-neutral-700 dark:text-neutral-300">
         <p>
           Nothing here uses a neural embedding model, a hosted API, or a key. The whole
-          topic model is a few hundred lines of NumPy and SciPy in{" "}
-          <code className="rounded bg-neutral-100 px-1 py-0.5 text-sm dark:bg-neutral-800">
-            scripts/build_layout.py
-          </code>
-          , which makes it deterministic and reproducible. The same corpus in, the same
-          map out. And any data entered here never goes anywhere.
+          topic model is a few hundred lines of NumPy and SciPy, which makes it
+          deterministic and reproducible. The same corpus in, the same map out. And any
+          data entered here never goes anywhere. The script that builds it is{" "}
+          <a
+            href="https://github.com/david-j-cox/published-landscape/blob/main/scripts/build_layout.py"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-neutral-900 dark:hover:text-neutral-100"
+          >
+            public
+          </a>
+          , if you want to read it.
         </p>
 
         <PipelineFigure
@@ -103,7 +109,12 @@ export default function NerdsPage() {
           When you paste a manuscript into <em>See where a new article lands</em>, that
           frozen model is reused rather than recomputed. Your text is tokenized against
           the same vocabulary and IDF weights, projected through the same SVD matrix, and
-          compared against every stored article vector. The corpus covers {years.at(-1)}
+          compared against every stored article vector. That model is one static file
+          that ships with the site and sits in this server&apos;s memory, so the
+          comparison happens here and nowhere else. Your text is never written to a
+          database and never sent to a third party. It lives for the length of the
+          request and then it is gone. Upload a PDF and the file itself never leaves your
+          browser at all, only the text pulled out of it. The corpus covers {years.at(-1)}
           &ndash;{years[0]} and rebuilds every Monday, which reshuffles topic boundaries
           as new articles change what clusters with what.
         </p>

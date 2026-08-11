@@ -194,7 +194,7 @@ export function DendrogramFigure({
         viewBox="0 0 760 200"
         className={SVG}
         role="img"
-        aria-label={`A dendrogram of twelve articles. Ward linkage merges the closest pair repeatedly, building a tree; one horizontal cut across the tree yields the topics. Cutting this tree gives four groups; the real cut gives ${topicCount}.`}
+        aria-label={`A dendrogram of twelve articles. Ward linkage merges the closest pair repeatedly, building a tree; one horizontal cut across the tree yields the topics. Cutting this tree gives four groups; the actual cut used in the landscape gives ${topicCount}.`}
       >
         {LEAVES.map((x) => (
           <circle key={x} cx={x} cy={165} r={2.5} fill="currentColor" />
@@ -236,9 +236,9 @@ export function DendrogramFigure({
         </text>
       </svg>
       <figcaption className={CAPTION}>
-        Ward repeatedly merges whichever pair is cheapest to join, building one tree over
-        every article; the topics are whatever a single horizontal cut leaves hanging
-        below it. Drawn with 12 articles and 4 groups - the real tree has{" "}
+        Ward repeatedly merges whichever pair is closest relative to cluster size, building one tree over
+        every article. The topics are then derived from whatever is below a single horizontal cut. 
+        This is drawn with 12 articles and 4 groups. The real tree has{" "}
         {articles.toLocaleString()} leaves, and the cut is set to give {topicCount}.
       </figcaption>
     </figure>
@@ -270,7 +270,7 @@ export function LabelScoreFigure() {
         viewBox="0 0 760 246"
         className={SVG}
         role="img"
-        aria-label="Six candidate terms for one topic. Each bar is the term's mean TF-IDF inside the topic, split into the part that is background (its mean outside the topic) and the part that is left over. Response and learning have long bars but mostly background, so they fall out of the top four."
+        aria-label="Six candidate terms for one topic. Each bar is the term's mean TF-IDF inside the topic, split into the part that is background (its mean outside the topic) and the part that is left over."
       >
         <rect x={x0} y={18} width={12} height={10} className="fill-neutral-300 dark:fill-neutral-700" />
         <text x={x0 + 18} y={27} fontSize={11} fill="currentColor">
@@ -319,7 +319,7 @@ export function LabelScoreFigure() {
         })}
       </svg>
       <figcaption className={CAPTION}>
-        One real topic, its six strongest candidate terms. Ranked by raw in-topic
+        One topic from the landscape, its six highest-scoring candidate terms. Ranked by raw in-topic
         frequency the label would read <em>theory, response, learning, selection</em> -
         but <em>response</em> and <em>learning</em> are nearly as common everywhere else
         in a behavior-analysis corpus. Subtracting the outside mean leaves{" "}
@@ -390,7 +390,7 @@ export function LayoutFigure() {
         viewBox="0 0 760 330"
         className={SVG}
         role="img"
-        aria-label="The same 395 articles laid out two ways. A single global projection smears five colored topics into one continuous cloud; the two-level island layout separates them into distinct clumps."
+        aria-label="The same 395 articles laid out two ways. A single global projection smears five colored topics into one continuous cloud. The two-level island layout separates them into distinct clumps."
       >
         <Panel ox={10} points={globalPts} groups={group} title="One global projection" />
         <Panel ox={400} points={islands} groups={group} title="Two-level island layout" />
@@ -413,9 +413,9 @@ export function LayoutFigure() {
         </g>
       </svg>
       <figcaption className={CAPTION}>
-        The same 395 articles, drawn from five topics plus a background sample, placed
-        both ways. The projection on the left is a real one - it is what a single
-        multidimensional scaling of these articles produces, and the five topics are all
+        The same 395 articles, drawn from five topics plus a background sample. The 
+        projection on the left is from the published landscape and is what a single
+        multidimensional scaling of these articles produces. The five topics are all
         in there, just overlapping. Laying out each topic around its own centroid is what
         makes them separable by eye.
       </figcaption>
