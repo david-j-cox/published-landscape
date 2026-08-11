@@ -217,7 +217,7 @@ def hierarchical_clusters(unit, k):
     """Ward-linkage clustering via scipy (C-optimized).
 
     Ward rather than average linkage: on this corpus average linkage chains,
-    and produced one 1,079-article cluster (15% of the corpus - every
+    and produced one 1,109-article cluster (15% of the corpus - every
     Behavioural Processes animal study, from foraging to mating to zebrafish
     personality) alongside a tail of 1-8 article slivers. No four-term label
     can describe a cluster that broad. Ward minimizes within-cluster variance

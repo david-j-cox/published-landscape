@@ -171,7 +171,7 @@ export function PipelineFigure({
 
 // Twelve leaves, four groups below the cut. Heights are hand-set to show the
 // shape of the thing (merge closest pair, repeat, cut once) rather than to
-// reproduce any particular subtree of the real 6,879-leaf dendrogram.
+// reproduce any particular subtree of the real 6,926-leaf dendrogram.
 const LEAVES = [45, 100, 155, 210, 265, 320, 375, 430, 485, 540, 595, 650];
 const CUT_Y = 105;
 
@@ -245,21 +245,24 @@ export function DendrogramFigure({
   );
 }
 
-// Real numbers, from the "Theory, evolutionary, selection, operant" topic
-// (198 articles). Chosen because it is a topic where the two scorings actually
-// disagree: sorted by raw in-topic mean the label would read "theory, response,
-// learning, selection".
+// Real numbers, from the "Animal, experimental, drug, theory" topic (193
+// articles). Chosen because it is a topic where the two scorings actually
+// disagree: sorted by raw in-topic mean the label would read "research,
+// experimental, animal, learning". Regenerate these if the topic stops
+// existing - a refresh reshuffles cluster boundaries, and the previous
+// example topic ("Theory, evolutionary, selection, operant") did not survive
+// one.
 const SCORE_ROWS = [
-  { term: "theory", inside: 0.0291, outside: 0.0045 },
-  { term: "response", inside: 0.0282, outside: 0.0125, note: "drops out" },
-  { term: "learning", inside: 0.0256, outside: 0.0096, note: "drops out" },
-  { term: "selection", inside: 0.0252, outside: 0.0038 },
-  { term: "evolutionary", inside: 0.0228, outside: 0.0013 },
-  { term: "operant", inside: 0.0215, outside: 0.0049 },
+  { term: "research", inside: 0.0248, outside: 0.0205, note: "drops out" },
+  { term: "experimental", inside: 0.0234, outside: 0.0076 },
+  { term: "animal", inside: 0.0233, outside: 0.0043 },
+  { term: "learning", inside: 0.0212, outside: 0.0098, note: "drops out" },
+  { term: "theory", inside: 0.0197, outside: 0.0048 },
+  { term: "drug", inside: 0.0167, outside: 0.0011 },
 ];
 
 export function LabelScoreFigure() {
-  const scale = 16000;
+  const scale = 19000;
   const x0 = 118;
   const rowH = 28;
   const top = 54;
@@ -320,10 +323,10 @@ export function LabelScoreFigure() {
       </svg>
       <figcaption className={CAPTION}>
         One topic from the landscape, its six highest-scoring candidate terms. Ranked by raw in-topic
-        frequency the label would read <em>theory, response, learning, selection</em> -
-        but <em>response</em> and <em>learning</em> are nearly as common everywhere else
+        frequency the label would read <em>research, experimental, animal, learning</em> -
+        but <em>research</em> and <em>learning</em> are nearly as common everywhere else
         in a behavior-analysis corpus. Subtracting the outside mean leaves{" "}
-        <em>theory, evolutionary, selection, operant</em>.
+        <em>animal, experimental, drug, theory</em>.
       </figcaption>
     </figure>
   );
