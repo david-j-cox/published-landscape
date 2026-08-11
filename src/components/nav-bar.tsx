@@ -32,6 +32,9 @@ export async function NavBar() {
               {viewer.role === "admin" ? "Admin" : "Editors"}
             </Link>
           )}
+          <Link href="/nerds" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
+            For Nerds
+          </Link>
         </nav>
         {viewer && (
           <form action={signOut} className="flex items-center gap-3">

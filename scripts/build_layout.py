@@ -3,7 +3,7 @@
 
 Same pure-numpy shape as the bds-lab-website approach (TF-IDF -> truncated
 SVD -> classical MDS -> clustering -> "topic islands" layout), scaled to a
-~4,000-article, 8-journal corpus and adapted for two data quirks here:
+~7,000-article, 12-journal corpus and adapted for two data quirks here:
 
   - No manual labels.json to override clustering (this corpus is too big to
     hand-label): clusters and their labels are fully derived from text.
@@ -27,12 +27,11 @@ from pathlib import Path
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
-from scipy.spatial.distance import squareform
 
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = Path(os.environ.get("CORPUS_PATH") or (ROOT / "data" / "corpus.json"))
 MODEL = Path(os.environ.get("MODEL_PATH") or (ROOT / "data" / "model.json"))
-K_CLUSTERS = int(sys.argv[1]) if len(sys.argv) > 1 else 45
+K_CLUSTERS = int(sys.argv[1]) if len(sys.argv) > 1 else 52
 SVD_DIMS = 60
 SEED = 7
 
@@ -51,15 +50,16 @@ human humans participants participant model models modeling quantitative
 intro introduction special section issue chapter guide editorial editors
 supplementary contains material materials online available doi https www
 version unlabelled esm publisher published copyright information
+applicable datasets dataset sharing generated
 how has have such why what when where which who whom whose does did done had
 memoriam acknowledgment acknowledgement reviewers reviewer tribute obituary
-corrigendum erratum errata correction jack michael
+corrigendum erratum errata correction jack michael john
 not nor yet none off own out too very just only both onto upon
 """.split())
 
 # Acronyms rendered fully uppercase in cluster labels (lower-cased keys).
 LABEL_ACRONYMS = set("""
-irap aba asd bst act gbg rird high-p
+irap aba asd bst act gbg rird high-p rft fct mvpa
 """.split())
 
 
@@ -214,12 +214,21 @@ def island_layout(unit, labels, seed=SEED):
 
 
 def hierarchical_clusters(unit, k):
-    """Average-linkage clustering via scipy (C-optimized), cosine distance."""
-    sim = unit @ unit.T
-    D = np.clip(1 - sim, 0, 2)
-    np.fill_diagonal(D, 0)
-    condensed = squareform(D, checks=False)
-    Z = linkage(condensed, method="average")
+    """Ward-linkage clustering via scipy (C-optimized).
+
+    Ward rather than average linkage: on this corpus average linkage chains,
+    and produced one 1,109-article cluster (15% of the corpus - every
+    Behavioural Processes animal study, from foraging to mating to zebrafish
+    personality) alongside a tail of 1-8 article slivers. No four-term label
+    can describe a cluster that broad. Ward minimizes within-cluster variance
+    at each merge, which resists chaining and yields comparable sizes.
+
+    Ward requires Euclidean distance, so it takes the observation matrix
+    directly rather than the cosine matrix the rest of the file uses. On
+    unit-norm vectors the two agree: squared Euclidean distance is
+    2 * (1 - cosine), a monotone transform, so neighbourhoods are unchanged.
+    """
+    Z = linkage(unit, method="ward")
     raw_labels = fcluster(Z, t=k, criterion="maxclust") - 1  # 0-indexed
     # Renumber so cluster 0 is the largest (matches legend ordering elsewhere).
     counts = Counter(raw_labels.tolist())
@@ -228,20 +237,49 @@ def hierarchical_clusters(unit, k):
     return np.array([remap[c] for c in raw_labels])
 
 
+def stem(term):
+    """Crude plural stem, only to keep a label from spending two of its four
+    slots on one concept ("schedules, schedule", "students, student")."""
+    for suffix in ("ies", "es", "s"):
+        if term.endswith(suffix) and len(term) - len(suffix) >= 4:
+            return term[: -len(suffix)] + ("y" if suffix == "ies" else "")
+    return term
+
+
 def cluster_labels(X_tfidf, vocab, labels, k, top=4):
+    """Name each cluster by the terms most *characteristic* of it.
+
+    Scored as in-cluster mean tf-idf minus out-of-cluster mean, not the raw
+    in-cluster sum the earlier version used. A plain sum rewards terms that
+    are merely common in a big cluster, so large clusters drew labels out of
+    the corpus-wide background vocabulary. The difference cancels that
+    background and leaves what actually separates the cluster.
+    """
+    n = len(X_tfidf)
+    total = X_tfidf.sum(axis=0)
     out = {}
     for j in range(k):
-        members = X_tfidf[labels == j]
-        score = members.sum(axis=0) if len(members) else np.zeros(X_tfidf.shape[1])
-        if not len(members) or score.max() == 0:
+        mask = labels == j
+        size = int(mask.sum())
+        if not size or size == n:
             out[j] = "Uncategorized"
             continue
-        order = np.argsort(score)[::-1]
+        inside = X_tfidf[mask].sum(axis=0) / size
+        outside = (total - X_tfidf[mask].sum(axis=0)) / (n - size)
+        score = inside - outside
+        if score.max() <= 0:
+            out[j] = "Uncategorized"
+            continue
         terms = []
-        for idx in order:
+        seen = set()
+        for idx in np.argsort(score)[::-1]:
             term = vocab[idx]
             if term in LABEL_STOP:
                 continue
+            root = stem(term)
+            if root in seen:
+                continue
+            seen.add(root)
             terms.append(term)
             if len(terms) == top:
                 break

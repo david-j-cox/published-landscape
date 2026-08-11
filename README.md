@@ -9,8 +9,8 @@ places every article in a "topic space" by what it's actually about, and
 lets readers browse by theme and associate editors find reviewers by
 expertise instead of by memory.
 
-Current corpus: **4,048 articles**, **97.4% with a real abstract**, **7
-journals**, **45 topics**, **5,961 authors**.
+Current corpus: **6,926 articles**, **92.5% with a real abstract**, **12
+journals**, **52 topics**, **11,614 authors**.
 
 ## What's here
 
@@ -57,7 +57,7 @@ flowchart TB
     SP --> ENR
     ENR --> BLD
 
-    BLD --> CORPUS[("data/corpus.json<br/>4,048 articles + clusters + x/y")]
+    BLD --> CORPUS[("data/corpus.json<br/>6,926 articles + clusters + x/y")]
     BLD --> MODEL[("data/model.json<br/>vocab, IDF, SVD matrix,<br/>article vectors, centroids")]
 
     subgraph App["Next.js app - deployed on Vercel"]
@@ -96,7 +96,7 @@ sequenceDiagram
     U->>API: POST title + abstract
     API->>M: Load frozen vocab, IDF,<br/>SVD matrix, article vectors, centroids
     API->>API: Tokenize, build TF-IDF vector,<br/>project via SVD into a new 60-dim vector
-    API->>C: Cosine similarity vs all 4,048<br/>existing article vectors
+    API->>C: Cosine similarity vs all 6,926<br/>existing article vectors
     API->>API: Nearest neighbors, cluster vote,<br/>weighted x/y, reviewer ranking
     API-->>U: neighbors + reviewers + cluster + x/y
     U->>U: Show results, with an optional marker on /map
@@ -150,7 +150,7 @@ indexed by OpenAlex/Crossref within a few days of publication.
 1. **Document text**: title (repeated 3x, so it dominates) + abstract. For
    the minority of articles with no abstract, falls back to title + OpenAlex's
    own topic/keyword tags instead (still real signal, just thinner).
-2. **TF-IDF**: a ~7,600-term vocabulary (terms appearing in 3 to 40% of
+2. **TF-IDF**: a ~11,300-term vocabulary (terms appearing in 3 to 40% of
    documents - rare enough to be informative, common enough to be reliable),
    weighted by log-scaled term frequency times inverse document frequency.
 3. **Truncated SVD to 60 dimensions** - this 60-number vector per article is
@@ -159,13 +159,19 @@ indexed by OpenAlex/Crossref within a few days of publication.
    reviewer suggestions, cluster assignment). Nothing downstream uses a
    neural embedding model; this is a from-scratch linear-algebra pipeline,
    deterministic and reproducible without an API key.
-4. **Clustering + layout**: average-linkage hierarchical clustering (cosine
-   distance) into 45 topics, each auto-labeled by its top TF-IDF terms. The
+4. **Clustering + layout**: Ward-linkage hierarchical clustering into 52
+   topics, each auto-labeled by the terms most characteristic of it (mean
+   in-cluster TF-IDF minus mean out-of-cluster, so a topic is named by what
+   separates it rather than by the corpus-wide background vocabulary).
+   Average linkage was the earlier choice and chained badly here, collapsing
+   every animal-behavior study into one 1,109-article cluster no label could
+   describe; Ward splits that into foraging, mating, vocal communication,
+   social groups, animal personality, and rodent stress models. The
    2D map position is a separate, purely visual step on top of the 60-dim
    embedding - a two-level "island" layout (cluster centroids placed via
    classical MDS and pushed apart so they don't overlap, then each cluster's
    own members locally laid out around its centroid). A single global
-   MDS/t-SNE over 4,048 points tends to produce one soft continuous blob;
+   MDS/t-SNE over 6,926 points tends to produce one soft continuous blob;
    doing it per-cluster is what makes the map read as separated, legible
    topic islands instead.
 
@@ -183,7 +189,7 @@ vector, and each cluster's centroid) is frozen into `data/model.json` when
    tokenized, build a TF-IDF vector over the *existing* frozen vocabulary
    (no re-fitting), and project it through the *existing* frozen SVD matrix
    to get a 60-dim vector in the same space as everything else.
-2. Cosine-similarity that vector against all 4,048 existing article vectors
+2. Cosine-similarity that vector against all 6,926 existing article vectors
    (a few thousand dot products - milliseconds, no retraining).
 3. Assign a topic by similarity-weighted majority vote among the nearest
    neighbors (not nearest cluster centroid - centroid similarity can point

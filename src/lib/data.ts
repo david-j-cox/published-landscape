@@ -108,6 +108,14 @@ export function getArticleById(id: string): ArticleDetail | null {
   return { ...article, journal, cluster, relatedArticles };
 }
 
+export function getCorpusStats(): { articles: number; abstractCoverage: number } {
+  const withAbstract = corpus.articles.filter((a) => a.has_full_abstract).length;
+  return {
+    articles: corpus.articles.length,
+    abstractCoverage: withAbstract / corpus.articles.length,
+  };
+}
+
 export function getYears(): number[] {
   const years = new Set(corpus.articles.map((a) => a.year).filter((y): y is number => y != null));
   return [...years].sort((a, b) => b - a);

@@ -86,6 +86,10 @@ function projectToLatent(title: string, abstract: string): number[] {
   return latent;
 }
 
+export function getModelStats(): { vocabSize: number; svdDims: number } {
+  return { vocabSize: model.vocab.length, svdDims: model.svd_dims };
+}
+
 export type PlacementResult = {
   clusterId: number;
   clusterLabel: string;
