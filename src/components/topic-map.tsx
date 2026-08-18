@@ -556,6 +556,20 @@ export function TopicMap({
     setHiddenJournals(new Set());
   }
 
+  // The placement is ephemeral: /submit stashes it, the map consumes it on
+  // mount, and until now the only way to get rid of it was to navigate away
+  // and back. Nothing to revoke - just drop the state and repaint.
+  function clearPlacement() {
+    setPending(null);
+    if (selectedRef.current?.id === PENDING_ID) closeDetail();
+    // The pulse otherwise only stops when the marker is clicked, so removing
+    // an unclicked placement would leave its rAF loop redrawing forever.
+    const canvas = canvasRef.current as
+      | (HTMLCanvasElement & { __setPulse?: (on: boolean) => void })
+      | null;
+    canvas?.__setPulse?.(false);
+  }
+
   function resetView() {
     setHiddenClusters(new Set());
     setHiddenJournals(new Set());
@@ -630,6 +644,15 @@ export function TopicMap({
               </li>
             ))}
           </ul>
+        )}
+        {pending && (
+          <button
+            onClick={clearPlacement}
+            className="mt-3 w-full rounded-md border py-1"
+            style={{ borderColor: "#b4530955", background: "#fbbf2411", color: "#b45309" }}
+          >
+            Remove submission
+          </button>
         )}
         <button
           onClick={resetView}
