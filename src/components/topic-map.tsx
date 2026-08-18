@@ -27,6 +27,8 @@ const JOURNAL_COLORS: Record<string, string> = {
   "0748-8491": "#000000", // ETC - black (drawn with a white outline so it reads on the dark map)
   "0376-6357": "#228b22", // Behavioural Processes - forest green (white outline)
   "1053-0819": "#1e3a8a", // Journal of Behavioral Education - navy blue (white outline)
+  "1543-4494": "#06b6d4", // Learning & Behavior - cyan
+  "2329-8456": "#84cc16", // JEP: Animal Learning and Cognition - lime
 };
 const FALLBACK_JOURNAL_COLOR = "#ec4899"; // any future unmapped journal
 

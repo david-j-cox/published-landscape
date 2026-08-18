@@ -122,12 +122,22 @@ def springer_abstract(doi, budget):
     return abstract.strip() if abstract else None
 
 
+# APA deposits every abstract with a trailing rights notice - e.g.
+# "(PsycInfo Database Record (c) 2019 APA, all rights reserved)." It is
+# identical across an entire journal, so TF-IDF reads it as that journal's
+# signature and pulls its articles into a junk "psycinfo/record/reserved"
+# cluster instead of their real topic. Always terminal, so strip to end.
+APA_RIGHTS_RE = re.compile(
+    r"\s*\(\s*Psyc(?:INFO|Info)\s+Database\s+Record.*$", re.IGNORECASE | re.DOTALL
+)
+
 def _clean_abstract(text):
     if not text:
         return None
     text = re.sub(r"<[^>]+>", " ", text)  # strip JATS/HTML tags (Crossref is JATS)
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"^abstract[\s:.-]*", "", text, flags=re.IGNORECASE)  # drop leading heading
+    text = APA_RIGHTS_RE.sub("", text).strip()
     return text or None
 
 

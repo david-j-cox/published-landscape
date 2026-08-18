@@ -40,6 +40,12 @@ JOURNALS = [
     {"openalex_source_id": "S144739066", "name": "Education and Treatment of Children", "issn_l": "0748-8491"},
     {"openalex_source_id": "S128158437", "name": "Behavioural Processes", "issn_l": "0376-6357"},
     {"openalex_source_id": "S90932718", "name": "Journal of Behavioral Education", "issn_l": "1053-0819"},
+    # Titled "Animal Learning & Behavior" until 2003 (ISSN 0090-4996); that era
+    # predates the 10-year window, so only the current title is fetched.
+    {"openalex_source_id": "S16559285", "name": "Learning & Behavior", "issn_l": "1543-4494"},
+    # Titled "JEP: Animal Behavior Processes" until 2015 (ISSN 0097-7403); as with
+    # Learning & Behavior above, that era predates the 10-year window.
+    {"openalex_source_id": "S10668961", "name": "Journal of Experimental Psychology: Animal Learning and Cognition", "issn_l": "2329-8456"},
 ]
 
 NOISE_TITLE_RE = re.compile(
@@ -49,6 +55,15 @@ NOISE_TITLE_RE = re.compile(
     r"guest reviewers?\b|reviewers? (?:and|&|&amp;) associate editors? list|"
     r"reviewer list|acknowledge?ment of.*guest)",
     re.IGNORECASE,
+)
+
+# APA deposits every abstract with a trailing rights notice - e.g.
+# "(PsycInfo Database Record (c) 2019 APA, all rights reserved)." It is
+# identical across an entire journal, so TF-IDF reads it as that journal's
+# signature and pulls its articles into a junk "psycinfo/record/reserved"
+# cluster instead of their real topic. Always terminal, so strip to end.
+APA_RIGHTS_RE = re.compile(
+    r"\s*\(\s*Psyc(?:INFO|Info)\s+Database\s+Record.*$", re.IGNORECASE | re.DOTALL
 )
 
 API = "https://api.openalex.org/works"
@@ -117,7 +132,8 @@ def reconstruct_abstract(inverted_index):
     for word, positions in inverted_index.items():
         for pos in positions:
             words[pos] = word
-    return re.sub(r"\s+", " ", " ".join(words)).strip()
+    text = re.sub(r"\s+", " ", " ".join(words)).strip()
+    return APA_RIGHTS_RE.sub("", text).strip() or None
 
 
 def normalize_author_id(openalex_url):

@@ -69,7 +69,11 @@ export function UserRow({
                 ))}
               </select>
               {canPickJournal ? (
-                <select name="journalId" defaultValue={user.journalId ?? ""} className={selectClass}>
+                <select
+                  name="journalId"
+                  defaultValue={user.journalId ?? ""}
+                  className={`${selectClass} max-w-[15rem] truncate`}
+                >
                   <option value="">No journal</option>
                   {journals.map((journal) => (
                     <option key={journal.id} value={journal.id}>
