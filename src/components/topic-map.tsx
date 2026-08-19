@@ -590,14 +590,28 @@ export function TopicMap({
 
       <aside className="absolute right-3 top-3 z-10 max-h-[calc(100%-24px)] w-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
         {pending && (
-          <button
-            onClick={clearPlacement}
-            className="mb-2 w-full rounded-md border py-1 font-medium"
-            style={{ borderColor: "#b4530966", background: "#fbbf2418", color: "#b45309" }}
-          >
-            Remove submission
-          </button>
+          <div className="mb-2 flex flex-col gap-1.5">
+            <Link
+              href="/submit"
+              className="w-full rounded-md border border-neutral-300 py-1 text-center text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Back to reviewer list
+            </Link>
+            <button
+              onClick={clearPlacement}
+              className="w-full rounded-md border py-1 font-medium"
+              style={{ borderColor: "#b4530966", background: "#fbbf2418", color: "#b45309" }}
+            >
+              Remove submission
+            </button>
+          </div>
         )}
+        <button
+          onClick={resetView}
+          className="mb-2 w-full rounded-md border border-neutral-300 py-1 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          Reset view
+        </button>
         <div className="mb-2 flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
           {(["topic", "journal"] as const).map((mode) => (
             <button
@@ -619,7 +633,7 @@ export function TopicMap({
           </div>
         )}
         {colorMode === "topic" ? (
-          <ul className="flex flex-col gap-1">
+          <ul className="flex max-h-[15.5rem] flex-col gap-1 overflow-y-auto">
             {clusters.map((c) => (
               <li
                 key={c.id}
@@ -635,7 +649,7 @@ export function TopicMap({
             ))}
           </ul>
         ) : (
-          <ul className="flex flex-col gap-1">
+          <ul className="flex max-h-[15.5rem] flex-col gap-1 overflow-y-auto">
             {journals.map((j) => (
               <li
                 key={j.id}
@@ -654,12 +668,6 @@ export function TopicMap({
             ))}
           </ul>
         )}
-        <button
-          onClick={resetView}
-          className="mt-3 w-full rounded-md border border-neutral-300 py-1 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-        >
-          Reset view
-        </button>
       </aside>
 
       <div className="absolute bottom-3 left-3 z-10 rounded-md bg-white/90 px-2.5 py-1 text-[11px] text-neutral-500 shadow-sm dark:bg-neutral-900/90 dark:text-neutral-400">
@@ -675,6 +683,18 @@ export function TopicMap({
           >
             &times;
           </button>
+          {pending && selected.id !== PENDING_ID && (
+            <button
+              onClick={() => {
+                selectedRef.current = pending.point;
+                setSelected(pending.point);
+                setDetail(null);
+              }}
+              className="mb-2 self-start text-xs text-neutral-500 underline hover:text-neutral-900 dark:hover:text-neutral-100"
+            >
+              &larr; Back to your submission
+            </button>
+          )}
           {selected.id === PENDING_ID && pending ? (
             <>
               <div
