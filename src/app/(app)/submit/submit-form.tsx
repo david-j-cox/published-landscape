@@ -175,13 +175,24 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <button
-          type="submit"
-          disabled={submitting || (!title && !abstract)}
-          className="mt-2 w-fit rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
-        >
-          {submitting ? "Placing..." : "Place in landscape"}
-        </button>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            disabled={submitting || (!title && !abstract)}
+            className="w-fit rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          >
+            {submitting ? "Finding..." : "Find Similar Articles/Reviewers"}
+          </button>
+          {result && (
+            <button
+              type="button"
+              onClick={viewOnMap}
+              className="w-fit rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
+            >
+              Place in Landscape
+            </button>
+          )}
+        </div>
       </form>
 
       {result && (
@@ -189,12 +200,6 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
           <div className="w-fit rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
             Closest topic: {result.clusterLabel}
           </div>
-          <button
-            onClick={viewOnMap}
-            className="ml-2 text-xs text-blue-600 underline dark:text-blue-400"
-          >
-            View placement on topic map
-          </button>
 
           <div className="mt-4 flex items-center justify-between gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
