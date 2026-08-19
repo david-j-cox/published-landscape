@@ -15,6 +15,8 @@ const numOrUndef = (v: number | "") => (v === "" ? undefined : v);
 
 const REVIEWER_PAGE = 15;
 
+type ResultTab = "articles" | "reviewers" | "references";
+
 export function SubmitForm({ journals, years }: { journals: Journal[]; years: number[] }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -27,6 +29,9 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
   // Suggested reviewers arrive ranked and complete; the list is revealed a
   // page at a time so a fresh placement opens on the strongest matches.
   const [reviewerCount, setReviewerCount] = useState(REVIEWER_PAGE);
+  // Which result list is showing. Stacked vertically these three ran to
+  // several screens; only one is ever being read at a time.
+  const [tab, setTab] = useState<ResultTab>("articles");
   // Neighbor filters ("" = no constraint). Changing one re-queries /api/place
   // so the nearest list is re-ranked within the filter, not just hidden.
   const [fJournal, setFJournal] = useState<number | "">("");
@@ -95,6 +100,9 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
       }
       setResult(data);
       setReviewerCount(REVIEWER_PAGE);
+      // Land on the reference check when one was requested - it is the reason
+      // the editor pasted references in the first place.
+      setTab(data.citations ? "references" : "articles");
       sessionStorage.setItem(
         SUBMIT_STATE_KEY,
         JSON.stringify({ title, abstract, references, result: data }),
@@ -148,6 +156,7 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
     setResult(null);
     setError(null);
     setReviewerCount(REVIEWER_PAGE);
+    setTab("articles");
     setFJournal("");
     setFYearMin("");
     setFYearMax("");
@@ -274,79 +283,44 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
             Closest topic: {result.clusterLabel}
           </div>
 
-          {result.citations && (
-            <div className="mt-6 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
-              <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-                Reference check
-              </div>
-              <p className="mt-1 text-xs text-neutral-400">
-                {result.citations.entryCount} reference
-                {result.citations.entryCount === 1 ? "" : "s"} read
-                {filtersActive ? ", checked against the filtered journals below" : ""}.
-              </p>
-
-              <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-                Related work not cited
-              </div>
-              {result.citations.uncited.length === 0 ? (
-                <p className="mt-1 text-sm text-neutral-500">
-                  Nothing to flag - the closest related work in these journals already appears in
-                  the reference list.
-                </p>
-              ) : (
-                <>
-                  <p className="mt-1 text-xs text-neutral-400">
-                    Closely related work in these journals that the reference list doesn&apos;t
-                    appear to cite. Worth a look before recommending anything to the author.
-                  </p>
-                  <ul className="mt-2 flex flex-col divide-y divide-neutral-200 dark:divide-neutral-800">
-                    {result.citations.uncited.map((n) => (
-                      <li key={n.id} className="flex items-baseline justify-between gap-3 py-2">
-                        <div className="text-sm">
-                          {n.doi ? (
-                            <a
-                              href={doiUrl(n.doi)}
-                              target="_blank"
-                              rel="noopener"
-                              className="text-blue-600 underline dark:text-blue-400"
-                            >
-                              {n.title}
-                            </a>
-                          ) : (
-                            <Link href={`/articles/${n.id}`} className="hover:underline">
-                              {n.title}
-                            </Link>
-                          )}{" "}
-                          <span className="text-neutral-400">({n.year})</span>
-                        </div>
-                        <span className="shrink-0 text-xs text-neutral-400">
-                          {Math.round(n.similarity * 100)}% similar
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-
-            </div>
-          )}
-
-          <div className="mt-4 flex items-center justify-between gap-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              Nearest existing articles
+          <div className="mt-6 flex items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800">
+            <div className="flex gap-1" role="tablist">
+              {([
+                ["articles", `Nearest articles`],
+                ["reviewers", `Suggested reviewers`],
+                ...(result.citations
+                  ? ([["references", `Reference check (${result.citations.uncited.length})`]] as const)
+                  : []),
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === key}
+                  onClick={() => setTab(key as ResultTab)}
+                  className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium ${
+                    tab === key
+                      ? "border-neutral-900 text-neutral-900 dark:border-neutral-100 dark:text-neutral-100"
+                      : "border-transparent text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
             {filtersActive && (
               <button
                 onClick={clearFilters}
-                className="text-xs text-blue-600 underline dark:text-blue-400"
+                className="shrink-0 text-xs text-blue-600 underline dark:text-blue-400"
               >
                 Clear filters
               </button>
             )}
           </div>
 
-          {/* Filter the nearest list by journal and/or year. Each change
-              re-ranks the whole corpus within the filter server-side. */}
+          {/* Filters the nearest list AND the reference check by journal and/or
+              year. Each change re-ranks the whole corpus within the filter
+              server-side. Suggested reviewers deliberately ignore it. */}
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <select
               value={fJournal}
@@ -401,6 +375,8 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
             </select>
           </div>
 
+          {tab === "articles" && (
+            <>
           {result.neighbors.length === 0 ? (
             <p className="mt-3 text-sm italic text-neutral-400">
               No articles match this filter
@@ -442,6 +418,11 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
             </ul>
           )}
 
+            </>
+          )}
+
+          {tab === "reviewers" && (
+            <>
           <div className="mt-8 text-xs font-semibold uppercase tracking-wide text-neutral-400">
             Suggested reviewers
           </div>
@@ -504,6 +485,61 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
               </span>
             </button>
           )}
+            </>
+          )}
+
+          {tab === "references" && result.citations && (
+            <div className="mt-4">
+              <p className="text-xs text-neutral-400">
+                {result.citations.entryCount} reference
+                {result.citations.entryCount === 1 ? "" : "s"} read, checked against the{" "}
+                {result.citations.scanned} most related articles
+                {fJournal !== "" ? ` in ${journalName(fJournal)}` : " across all journals"}.
+              </p>
+              {result.citations.uncited.length === 0 ? (
+                <p className="mt-3 text-sm text-neutral-500">
+                  Nothing to flag - the closest related work
+                  {fJournal !== "" ? ` in ${journalName(fJournal)}` : ""} already appears in the
+                  reference list.
+                </p>
+              ) : (
+                <>
+                  <p className="mt-1 text-xs text-neutral-400">
+                    Related work the reference list doesn&apos;t appear to cite, most similar
+                    first. Filter by journal above to scope this to your own.
+                  </p>
+                  <ul className="mt-2 flex flex-col divide-y divide-neutral-200 dark:divide-neutral-800">
+                    {result.citations.uncited.map((n) => (
+                      <li key={n.id} className="flex items-baseline justify-between gap-3 py-2">
+                        <div className="text-sm">
+                          {n.doi ? (
+                            <a
+                              href={doiUrl(n.doi)}
+                              target="_blank"
+                              rel="noopener"
+                              className="text-blue-600 underline dark:text-blue-400"
+                            >
+                              {n.title}
+                            </a>
+                          ) : (
+                            <Link href={`/articles/${n.id}`} className="hover:underline">
+                              {n.title}
+                            </Link>
+                          )}{" "}
+                          <span className="text-neutral-400">({n.year})</span>
+                        </div>
+                        <span className="shrink-0 text-xs text-neutral-400">
+                          {Math.round(n.similarity * 100)}% similar
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+            </div>
+          )}
+
         </div>
       )}
     </div>
