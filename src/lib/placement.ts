@@ -66,9 +66,19 @@ function toNeighbor(a: Article, similarity: number): PlacementNeighbor {
   };
 }
 
+/** The exact text build_layout.py's doc_text() would have built for this
+ *  document. A submission must be vectorized the way the corpus was, or it is
+ *  compared against documents weighted differently from itself: doc_text drops
+ *  the title to a single pass once there is a real abstract to lean on, and
+ *  only repeats it 3x when there is no body text to carry the topic. */
+export function queryText(title: string, abstract: string): string {
+  const body = abstract.trim();
+  const titleWeight = body ? 1 : 3;
+  return `${`${title} `.repeat(titleWeight)}${body}`;
+}
+
 function projectToLatent(title: string, abstract: string): number[] {
-  const text = `${title} ${title} ${title} ${abstract}`;
-  const tokens = tokenize(text);
+  const tokens = tokenize(queryText(title, abstract));
   const counts = new Map<number, number>();
   for (const t of tokens) {
     const idx = vocabIndex.get(t);
@@ -126,7 +136,7 @@ export function placeArticle(
   filters: PlacementFilters = {},
 ): PlacementResult {
   const latent = projectToLatent(title, abstract);
-  const matchedTermCount = tokenize(`${title} ${title} ${title} ${abstract}`).filter((t) =>
+  const matchedTermCount = tokenize(queryText(title, abstract)).filter((t) =>
     vocabIndex.has(t),
   ).length;
 
