@@ -281,8 +281,8 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
               </div>
               <p className="mt-1 text-xs text-neutral-400">
                 {result.citations.entryCount} reference
-                {result.citations.entryCount === 1 ? "" : "s"} read &middot;{" "}
-                {result.citations.matchedCount} matched to articles in the landscape.
+                {result.citations.entryCount === 1 ? "" : "s"} read
+                {filtersActive ? ", checked against the filtered journals below" : ""}.
               </p>
 
               <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-neutral-400">
@@ -328,22 +328,6 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
                 </>
               )}
 
-              {result.citations.unmatched.length > 0 && (
-                <details className="mt-4">
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
-                    Not in the landscape ({result.citations.unmatched.length})
-                  </summary>
-                  <p className="mt-1 text-xs text-neutral-400">
-                    References we couldn&apos;t match to any article in the corpus - books, other
-                    journals, or work published before the ten-year window.
-                  </p>
-                  <ul className="mt-2 flex flex-col gap-1.5 text-xs text-neutral-500">
-                    {result.citations.unmatched.map((r, i) => (
-                      <li key={i}>{r}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
             </div>
           )}
 

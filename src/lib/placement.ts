@@ -114,10 +114,7 @@ export type PlacementResult = {
   citations?: {
     /** Related work in the corpus the reference list does not appear to cite. */
     uncited: PlacementNeighbor[];
-    /** Pasted entries that matched nothing in the corpus. */
-    unmatched: string[];
     entryCount: number;
-    matchedCount: number;
   };
 };
 
@@ -184,15 +181,16 @@ export function placeArticle(
   // that slice always surface. With no filter this is exactly `order`.
   const { yearMin, yearMax, journalId } = filters;
   const filtered = yearMin !== undefined || yearMax !== undefined || journalId !== undefined;
+  const passesFilter = (i: number) => {
+    const a = articles[i];
+    if (journalId !== undefined && a.journal_id !== journalId) return false;
+    if (yearMin !== undefined && (a.year == null || a.year < yearMin)) return false;
+    if (yearMax !== undefined && (a.year == null || a.year > yearMax)) return false;
+    return true;
+  };
   const neighborOrder = filtered
     ? [...sims.keys()]
-        .filter((i) => {
-          const a = articles[i];
-          if (journalId !== undefined && a.journal_id !== journalId) return false;
-          if (yearMin !== undefined && (a.year == null || a.year < yearMin)) return false;
-          if (yearMax !== undefined && (a.year == null || a.year > yearMax)) return false;
-          return true;
-        })
+        .filter(passesFilter)
         .sort((a, b) => sims[b] - sims[a])
         .slice(0, topK)
     : order;
@@ -256,22 +254,21 @@ export function placeArticle(
   const CITATION_CANDIDATES = 25;
   let citations: PlacementResult["citations"];
   if (references.trim()) {
-    const candidateIdx = [...sims.keys()]
-      .sort((a, b) => sims[b] - sims[a])
-      .slice(0, CITATION_CANDIDATES);
+    // Follows the same journal/year filter as the neighbour list: an editor
+    // asking "what in MY journal did they miss" scopes to their own journal,
+    // and the answer has to respect that.
+    const pool = filtered ? [...sims.keys()].filter(passesFilter) : [...sims.keys()];
+    const candidateIdx = pool.sort((a, b) => sims[b] - sims[a]).slice(0, CITATION_CANDIDATES);
     const check = checkReferences(
       candidateIdx.map((i) => articles[i]),
       references,
-      articles,
     );
     const uncitedSet = new Set(check.uncited);
     citations = {
       uncited: candidateIdx
         .filter((i) => uncitedSet.has(articles[i].id))
         .map((i) => toNeighbor(articles[i], sims[i])),
-      unmatched: check.unmatched,
       entryCount: check.entryCount,
-      matchedCount: check.matchedCount,
     };
   }
 
