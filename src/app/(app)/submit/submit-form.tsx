@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
-import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
+import { useEffect, useRef, useState } from "react";
+import { PLACEMENT_STORAGE_KEY, SUBMIT_STATE_KEY } from "@/lib/constants";
 import { extractPdfText, guessAbstract } from "@/lib/pdf-extract";
 import type { PlacementResult } from "@/lib/placement";
 import type { Journal } from "@/lib/types";
@@ -54,6 +54,23 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
     }
   }
 
+  // Coming back from the map restores the last query and its results rather
+  // than making the user paste the title and abstract in again.
+  useEffect(() => {
+    const raw = sessionStorage.getItem(SUBMIT_STATE_KEY);
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw) as { title: string; abstract: string; result: PlacementResult };
+      if (!saved.result) return;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTitle(saved.title);
+      setAbstract(saved.abstract);
+      setResult(saved.result);
+    } catch {
+      // malformed entry - ignore
+    }
+  }, []);
+
   // Single code path for the initial placement and every filter re-query.
   async function runPlacement(filters: NeighborFilters) {
     setSubmitting(true);
@@ -71,6 +88,8 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
       }
       setResult(data);
       setReviewerCount(REVIEWER_PAGE);
+      sessionStorage.setItem(SUBMIT_STATE_KEY, JSON.stringify({ title, abstract, result: data }));
+      return data as PlacementResult;
     } catch {
       setError("Something went wrong contacting the server.");
     } finally {
@@ -110,17 +129,18 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
 
   const filtersActive = fJournal !== "" || fYearMin !== "" || fYearMax !== "";
 
-  function viewOnMap() {
-    if (!result) return;
+  async function viewOnMap() {
+    const placement = result ?? (await runPlacement({}));
+    if (!placement) return;
     sessionStorage.setItem(
       PLACEMENT_STORAGE_KEY,
       JSON.stringify({
         title: title || "(untitled submission)",
-        x: result.x,
-        y: result.y,
-        clusterId: result.clusterId,
-        clusterLabel: result.clusterLabel,
-        neighbors: result.neighbors.slice(0, 5),
+        x: placement.x,
+        y: placement.y,
+        clusterId: placement.clusterId,
+        clusterLabel: placement.clusterLabel,
+        neighbors: placement.neighbors.slice(0, 5),
       }),
     );
     router.push("/map");
@@ -183,15 +203,14 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
           >
             {submitting ? "Finding..." : "Find Similar Articles/Reviewers"}
           </button>
-          {result && (
-            <button
-              type="button"
-              onClick={viewOnMap}
-              className="w-fit rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
-            >
-              Place in Landscape
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => void viewOnMap()}
+            disabled={submitting || (!title && !abstract)}
+            className="w-fit rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          >
+            Place in Landscape
+          </button>
         </div>
       </form>
 
