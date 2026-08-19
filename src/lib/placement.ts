@@ -1,4 +1,5 @@
 import "server-only";
+import { checkReferences } from "@/lib/references";
 import corpusJson from "@/data/corpus.json";
 import modelJson from "@/data/model.json";
 import { getClusters } from "@/lib/data";
@@ -109,6 +110,15 @@ export type PlacementResult = {
   neighbors: PlacementNeighbor[];
   reviewers: CandidateReviewer[];
   matchedTermCount: number;
+  /** Present only when a reference list was supplied. */
+  citations?: {
+    /** Related work in the corpus the reference list does not appear to cite. */
+    uncited: PlacementNeighbor[];
+    /** Pasted entries that matched nothing in the corpus. */
+    unmatched: string[];
+    entryCount: number;
+    matchedCount: number;
+  };
 };
 
 // Optional narrowing for the displayed "nearest articles" only. When set, the
@@ -134,6 +144,7 @@ export function placeArticle(
   topK = 10,
   reviewerPoolSize = 30,
   filters: PlacementFilters = {},
+  references = "",
 ): PlacementResult {
   const latent = projectToLatent(title, abstract);
   const matchedTermCount = tokenize(queryText(title, abstract)).filter((t) =>
@@ -239,6 +250,31 @@ export function placeArticle(
       papers: e.papers.sort((a, b) => b.similarity - a.similarity).slice(0, 3),
     }));
 
+  // Reference check runs over a wider slice than the displayed neighbour list:
+  // an editor wants "related work in our journals you did not cite", which is
+  // a longer tail than the handful shown as nearest articles.
+  const CITATION_CANDIDATES = 25;
+  let citations: PlacementResult["citations"];
+  if (references.trim()) {
+    const candidateIdx = [...sims.keys()]
+      .sort((a, b) => sims[b] - sims[a])
+      .slice(0, CITATION_CANDIDATES);
+    const check = checkReferences(
+      candidateIdx.map((i) => articles[i]),
+      references,
+      articles,
+    );
+    const uncitedSet = new Set(check.uncited);
+    citations = {
+      uncited: candidateIdx
+        .filter((i) => uncitedSet.has(articles[i].id))
+        .map((i) => toNeighbor(articles[i], sims[i])),
+      unmatched: check.unmatched,
+      entryCount: check.entryCount,
+      matchedCount: check.matchedCount,
+    };
+  }
+
   const clusters = getClusters();
   return {
     clusterId: bestCluster,
@@ -248,6 +284,7 @@ export function placeArticle(
     y: wsum > 0 ? wy / wsum : 0,
     neighbors,
     reviewers,
+    citations,
     matchedTermCount,
   };
 }
