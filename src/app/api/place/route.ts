@@ -16,11 +16,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Provide at least a title or abstract." }, { status: 400 });
   }
 
-  const result = placeArticle(title, abstract, 10, 30, {
-    journalId: intOrUndef(body?.journalId),
-    yearMin: intOrUndef(body?.yearMin),
-    yearMax: intOrUndef(body?.yearMax),
-  });
+  // Cap the pasted reference list: it is free text from the browser and only
+  // ever needs to be a bibliography.
+  const references =
+    typeof body?.references === "string" ? body.references.slice(0, 60_000) : "";
+
+  const result = placeArticle(
+    title,
+    abstract,
+    10,
+    30,
+    {
+      journalId: intOrUndef(body?.journalId),
+      yearMin: intOrUndef(body?.yearMin),
+      yearMax: intOrUndef(body?.yearMax),
+    },
+    references,
+  );
   if (result.matchedTermCount < 3) {
     return NextResponse.json(
       {

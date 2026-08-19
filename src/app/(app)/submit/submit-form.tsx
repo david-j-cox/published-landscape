@@ -19,6 +19,7 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [abstract, setAbstract] = useState("");
+  const [references, setReferences] = useState("");
   const [extracting, setExtracting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,11 +61,17 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
     const raw = sessionStorage.getItem(SUBMIT_STATE_KEY);
     if (!raw) return;
     try {
-      const saved = JSON.parse(raw) as { title: string; abstract: string; result: PlacementResult };
+      const saved = JSON.parse(raw) as {
+        title: string;
+        abstract: string;
+        references?: string;
+        result: PlacementResult;
+      };
       if (!saved.result) return;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTitle(saved.title);
       setAbstract(saved.abstract);
+      setReferences(saved.references ?? "");
       setResult(saved.result);
     } catch {
       // malformed entry - ignore
@@ -79,7 +86,7 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
       const res = await fetch("/api/place", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, abstract, ...filters }),
+        body: JSON.stringify({ title, abstract, references, ...filters }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -88,7 +95,10 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
       }
       setResult(data);
       setReviewerCount(REVIEWER_PAGE);
-      sessionStorage.setItem(SUBMIT_STATE_KEY, JSON.stringify({ title, abstract, result: data }));
+      sessionStorage.setItem(
+        SUBMIT_STATE_KEY,
+        JSON.stringify({ title, abstract, references, result: data }),
+      );
       return data as PlacementResult;
     } catch {
       setError("Something went wrong contacting the server.");
@@ -128,6 +138,22 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
   }
 
   const filtersActive = fJournal !== "" || fYearMin !== "" || fYearMax !== "";
+
+  // Reset for the next article. Also drops the saved state, otherwise
+  // returning from the map would repopulate the form we just cleared.
+  function clearAll() {
+    setTitle("");
+    setAbstract("");
+    setReferences("");
+    setResult(null);
+    setError(null);
+    setReviewerCount(REVIEWER_PAGE);
+    setFJournal("");
+    setFYearMin("");
+    setFYearMax("");
+    sessionStorage.removeItem(SUBMIT_STATE_KEY);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
   async function viewOnMap() {
     const placement = result ?? (await runPlacement({}));
@@ -193,6 +219,25 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
           autofilled abstract before submitting.
         </p>
 
+        <div className="mt-2 flex flex-col gap-1">
+          <label htmlFor="references" className="text-sm font-medium">
+            References <span className="font-normal text-neutral-400">(optional)</span>
+          </label>
+          <p className="mb-1 text-xs text-neutral-400">
+            Paste the manuscript&apos;s reference list in any style. We&apos;ll flag related work in
+            these journals that it doesn&apos;t appear to cite, and show which references aren&apos;t
+            in the landscape at all.
+          </p>
+          <textarea
+            id="references"
+            value={references}
+            onChange={(e) => setReferences(e.target.value)}
+            rows={5}
+            placeholder="Smith, J. (2021). Title of the work. Journal Name, 54(2), 101-118. https://doi.org/..."
+            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          />
+        </div>
+
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -211,6 +256,15 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
           >
             Place in Landscape
           </button>
+          {(title || abstract || references || result) && (
+            <button
+              type="button"
+              onClick={clearAll}
+              className="w-fit rounded-md border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </form>
 
@@ -219,6 +273,79 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
           <div className="w-fit rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
             Closest topic: {result.clusterLabel}
           </div>
+
+          {result.citations && (
+            <div className="mt-6 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
+              <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                Reference check
+              </div>
+              <p className="mt-1 text-xs text-neutral-400">
+                {result.citations.entryCount} reference
+                {result.citations.entryCount === 1 ? "" : "s"} read &middot;{" "}
+                {result.citations.matchedCount} matched to articles in the landscape.
+              </p>
+
+              <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                Related work not cited
+              </div>
+              {result.citations.uncited.length === 0 ? (
+                <p className="mt-1 text-sm text-neutral-500">
+                  Nothing to flag - the closest related work in these journals already appears in
+                  the reference list.
+                </p>
+              ) : (
+                <>
+                  <p className="mt-1 text-xs text-neutral-400">
+                    Closely related work in these journals that the reference list doesn&apos;t
+                    appear to cite. Worth a look before recommending anything to the author.
+                  </p>
+                  <ul className="mt-2 flex flex-col divide-y divide-neutral-200 dark:divide-neutral-800">
+                    {result.citations.uncited.map((n) => (
+                      <li key={n.id} className="flex items-baseline justify-between gap-3 py-2">
+                        <div className="text-sm">
+                          {n.doi ? (
+                            <a
+                              href={doiUrl(n.doi)}
+                              target="_blank"
+                              rel="noopener"
+                              className="text-blue-600 underline dark:text-blue-400"
+                            >
+                              {n.title}
+                            </a>
+                          ) : (
+                            <Link href={`/articles/${n.id}`} className="hover:underline">
+                              {n.title}
+                            </Link>
+                          )}{" "}
+                          <span className="text-neutral-400">({n.year})</span>
+                        </div>
+                        <span className="shrink-0 text-xs text-neutral-400">
+                          {Math.round(n.similarity * 100)}% similar
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {result.citations.unmatched.length > 0 && (
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+                    Not in the landscape ({result.citations.unmatched.length})
+                  </summary>
+                  <p className="mt-1 text-xs text-neutral-400">
+                    References we couldn&apos;t match to any article in the corpus - books, other
+                    journals, or work published before the ten-year window.
+                  </p>
+                  <ul className="mt-2 flex flex-col gap-1.5 text-xs text-neutral-500">
+                    {result.citations.unmatched.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
 
           <div className="mt-4 flex items-center justify-between gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
