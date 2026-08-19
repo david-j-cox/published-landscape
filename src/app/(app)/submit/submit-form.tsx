@@ -13,6 +13,8 @@ type NeighborFilters = { journalId?: number; yearMin?: number; yearMax?: number 
 
 const numOrUndef = (v: number | "") => (v === "" ? undefined : v);
 
+const REVIEWER_PAGE = 15;
+
 export function SubmitForm({ journals, years }: { journals: Journal[]; years: number[] }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -21,6 +23,9 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PlacementResult | null>(null);
+  // Suggested reviewers arrive ranked and complete; the list is revealed a
+  // page at a time so a fresh placement opens on the strongest matches.
+  const [reviewerCount, setReviewerCount] = useState(REVIEWER_PAGE);
   // Neighbor filters ("" = no constraint). Changing one re-queries /api/place
   // so the nearest list is re-ranked within the filter, not just hidden.
   const [fJournal, setFJournal] = useState<number | "">("");
@@ -65,6 +70,7 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
         return;
       }
       setResult(data);
+      setReviewerCount(REVIEWER_PAGE);
     } catch {
       setError("Something went wrong contacting the server.");
     } finally {
@@ -75,6 +81,7 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setResult(null);
+    setReviewerCount(REVIEWER_PAGE);
     // A fresh submission starts from an unfiltered nearest list.
     setFJournal("");
     setFYearMin("");
@@ -309,7 +316,7 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
             corresponding author&apos;s contact details on the publisher&apos;s site.
           </p>
           <ul className="mt-2 flex flex-col divide-y divide-neutral-200 dark:divide-neutral-800">
-            {result.reviewers.map((r) => (
+            {result.reviewers.slice(0, reviewerCount).map((r) => (
               <li key={r.id} className="py-2.5">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-sm font-medium">{r.display_name}</span>
@@ -348,6 +355,20 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
               </li>
             ))}
           </ul>
+          {reviewerCount < result.reviewers.length && (
+            <button
+              type="button"
+              onClick={() =>
+                setReviewerCount((n) => Math.min(n + REVIEWER_PAGE, result.reviewers.length))
+              }
+              className="mt-3 w-full rounded-md border border-neutral-300 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Show more reviewers
+              <span className="ml-2 text-xs text-neutral-400">
+                showing {reviewerCount} of {result.reviewers.length}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>

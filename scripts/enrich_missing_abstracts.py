@@ -17,6 +17,7 @@ before writing this. Marks each backfilled article with "abstract_source"
 for provenance/debugging.
 """
 import datetime
+import html
 import json
 import os
 import re
@@ -135,6 +136,7 @@ def _clean_abstract(text):
     if not text:
         return None
     text = re.sub(r"<[^>]+>", " ", text)  # strip JATS/HTML tags (Crossref is JATS)
+    text = html.unescape(text)  # after tag-stripping, so &lt;i&gt; can't become a tag
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"^abstract[\s:.-]*", "", text, flags=re.IGNORECASE)  # drop leading heading
     text = APA_RIGHTS_RE.sub("", text).strip()

@@ -589,6 +589,15 @@ export function TopicMap({
       />
 
       <aside className="absolute right-3 top-3 z-10 max-h-[calc(100%-24px)] w-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
+        {pending && (
+          <button
+            onClick={clearPlacement}
+            className="mb-2 w-full rounded-md border py-1 font-medium"
+            style={{ borderColor: "#b4530966", background: "#fbbf2418", color: "#b45309" }}
+          >
+            Remove submission
+          </button>
+        )}
         <div className="mb-2 flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
           {(["topic", "journal"] as const).map((mode) => (
             <button
@@ -645,15 +654,6 @@ export function TopicMap({
             ))}
           </ul>
         )}
-        {pending && (
-          <button
-            onClick={clearPlacement}
-            className="mt-3 w-full rounded-md border py-1"
-            style={{ borderColor: "#b4530955", background: "#fbbf2411", color: "#b45309" }}
-          >
-            Remove submission
-          </button>
-        )}
         <button
           onClick={resetView}
           className="mt-3 w-full rounded-md border border-neutral-300 py-1 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
@@ -683,6 +683,12 @@ export function TopicMap({
               >
                 Draft submission &middot; {pending.clusterLabel}
               </div>
+              <button
+                onClick={clearPlacement}
+                className="mb-1 self-start text-xs text-neutral-500 underline hover:text-neutral-900 dark:hover:text-neutral-100"
+              >
+                Remove from map
+              </button>
               <h2 className="text-lg font-semibold leading-snug">{pending.point.title}</h2>
               <p className="mt-2 text-sm text-neutral-500">
                 Not yet published - placed based on the title/abstract submitted on the{" "}

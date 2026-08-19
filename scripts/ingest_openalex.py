@@ -10,6 +10,7 @@ of any database - the Next.js app can read this file directly, and
 scripts/load_supabase.py can push the same file into Postgres once a
 Supabase project exists.
 """
+import html
 import json
 import os
 import re
@@ -124,6 +125,32 @@ def fetch_all(source_id: str):
     return works
 
 
+TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_markup(title):
+    """Strip the JATS/HTML markup OpenAlex passes through in titles and abstracts.
+
+    Wiley and APA deposit titles like "the<i>Journal of ...</i>" and
+    "<scp>COVID</scp>-19". Left in, the tags show up literally in the UI and
+    their names leak into the topic model as tokens ("scp", "sup", "amp").
+    A tag becomes a space only when it separates two word characters, so
+    "the<i>Journal" splits while "<scp>COVID</scp>-19" and "LGBTQ</scp>+"
+    keep their punctuation.
+    """
+    if not title:
+        return title
+    out, pos = [], 0
+    for m in TAG_RE.finditer(title):
+        out.append(title[pos:m.start()])
+        before = title[m.start() - 1] if m.start() else ""
+        after = title[m.end()] if m.end() < len(title) else ""
+        out.append(" " if before.isalnum() and after.isalnum() else "")
+        pos = m.end()
+    out.append(title[pos:])
+    # unescape after stripping, so escaped angle brackets can't become tags
+    return re.sub(r"\s+", " ", html.unescape("".join(out))).strip()
+
 def reconstruct_abstract(inverted_index):
     if not inverted_index:
         return None
@@ -132,7 +159,7 @@ def reconstruct_abstract(inverted_index):
     for word, positions in inverted_index.items():
         for pos in positions:
             words[pos] = word
-    text = re.sub(r"\s+", " ", " ".join(words)).strip()
+    text = strip_markup(" ".join(words))
     return APA_RIGHTS_RE.sub("", text).strip() or None
 
 
@@ -164,7 +191,7 @@ def normalize_work(work, journal_id):
     return {
         "id": normalize_author_id(work["id"]),
         "journal_id": journal_id,
-        "title": (work.get("title") or "").strip(),
+        "title": strip_markup(work.get("title") or ""),
         "abstract": abstract,
         "has_full_abstract": abstract is not None,
         "openalex_topics": topics,
