@@ -100,9 +100,10 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
       }
       setResult(data);
       setReviewerCount(REVIEWER_PAGE);
-      // Land on the reference check when one was requested - it is the reason
-      // the editor pasted references in the first place.
-      setTab(data.citations ? "references" : "articles");
+      // Always land on the nearest articles - it is the answer to the question
+      // the button asks, and the reference-check tab carries its own count so
+      // nothing is missed by not opening on it.
+      setTab("articles");
       sessionStorage.setItem(
         SUBMIT_STATE_KEY,
         JSON.stringify({ title, abstract, references, result: data }),
