@@ -115,6 +115,8 @@ export type PlacementResult = {
     /** Related work in the corpus the reference list does not appear to cite. */
     uncited: PlacementNeighbor[];
     entryCount: number;
+    /** How far down the ranking the check looked. */
+    scanned: number;
   };
 };
 
@@ -251,24 +253,31 @@ export function placeArticle(
   // Reference check runs over a wider slice than the displayed neighbour list:
   // an editor wants "related work in our journals you did not cite", which is
   // a longer tail than the handful shown as nearest articles.
-  const CITATION_CANDIDATES = 25;
+  // Return a full page of UNCITED work rather than a fixed slice of candidates:
+  // truncating the candidate pool first meant a well-cited manuscript returned
+  // almost nothing, since most of the top slice had already been cited. Scan
+  // down the ranking until the page is filled or the scan budget runs out.
+  const CITATION_RESULTS = 20;
+  const CITATION_SCAN = 200;
   let citations: PlacementResult["citations"];
   if (references.trim()) {
     // Follows the same journal/year filter as the neighbour list: an editor
     // asking "what in MY journal did they miss" scopes to their own journal,
     // and the answer has to respect that.
     const pool = filtered ? [...sims.keys()].filter(passesFilter) : [...sims.keys()];
-    const candidateIdx = pool.sort((a, b) => sims[b] - sims[a]).slice(0, CITATION_CANDIDATES);
+    const scanned = pool.sort((a, b) => sims[b] - sims[a]).slice(0, CITATION_SCAN);
     const check = checkReferences(
-      candidateIdx.map((i) => articles[i]),
+      scanned.map((i) => articles[i]),
       references,
     );
     const uncitedSet = new Set(check.uncited);
     citations = {
-      uncited: candidateIdx
+      uncited: scanned
         .filter((i) => uncitedSet.has(articles[i].id))
+        .slice(0, CITATION_RESULTS)
         .map((i) => toNeighbor(articles[i], sims[i])),
       entryCount: check.entryCount,
+      scanned: scanned.length,
     };
   }
 
