@@ -113,6 +113,11 @@ export type PlacementFilters = {
   journalId?: number;
 };
 
+// The UI reveals these a page at a time. reviewerPoolSize is deliberately left
+// alone: the 30 nearest articles already yield ~110 distinct authors, so the
+// deeper list costs nothing and the leading ranks stay exactly as they were.
+const MAX_REVIEWERS = 100;
+
 export function placeArticle(
   title: string,
   abstract: string,
@@ -207,7 +212,7 @@ export function placeArticle(
   }
   const reviewers: CandidateReviewer[] = [...byAuthor.entries()]
     .sort((a, b) => b[1].score - a[1].score)
-    .slice(0, 15)
+    .slice(0, MAX_REVIEWERS)
     .map(([id, e]) => ({
       id,
       display_name: e.display_name,
