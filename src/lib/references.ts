@@ -4,16 +4,14 @@ import type { Article } from "@/lib/types";
 /**
  * Reference-list checking for a submission.
  *
- * Two questions an editor asks of a manuscript's bibliography, both answered
- * against a reference list pasted as free text (any style - APA, numbered,
- * whatever the author used):
+ * Answers the question an editor actually asks of a manuscript's bibliography:
+ * what related work in these journals did the author NOT cite? Recent,
+ * on-topic work in their own journal that belongs in the paper.
  *
- *   1. What related work in these journals did the author NOT cite? This is
- *      the one editors ask for: recent, on-topic work in their own journal
- *      that belongs in the paper.
- *   2. Which of the author's references are not in the landscape at all? Those
- *      are the corpus's blind spots - out-of-scope journals, books, or work
- *      older than the ten-year window.
+ * The reverse direction - which of the author's references we do not hold -
+ * is deliberately not reported. The corpus is one decade of a specific set of
+ * journals, so almost every book, older classic and out-of-scope citation
+ * comes back "missing" and the signal is drowned in it.
  *
  * Matching is deliberately conservative in the direction that matters: it is
  * far worse to tell an editor a paper is missing when the author did cite it
@@ -49,12 +47,8 @@ function surnameOf(displayName: string): string {
 export type CitationCheck = {
   /** Related articles in the corpus that the reference list does not appear to cite. */
   uncited: string[];
-  /** Reference entries that matched nothing in the corpus. */
-  unmatched: string[];
   /** How many entries the reference list was split into. */
   entryCount: number;
-  /** How many entries matched a corpus article. */
-  matchedCount: number;
 };
 
 /**
@@ -133,50 +127,12 @@ function cites(article: Article, blobNorm: string, blobRaw: string): boolean {
 /**
  * @param candidates  corpus articles ranked by relevance to the submission
  * @param references  the reference list, pasted as free text
- * @param corpus      every article, for the "not in the landscape" direction
  */
-export function checkReferences(
-  candidates: Article[],
-  references: string,
-  corpus: Article[],
-): CitationCheck {
+export function checkReferences(candidates: Article[], references: string): CitationCheck {
   const blobRaw = references;
   const blobNorm = norm(references);
-
-  const uncited = candidates.filter((a) => !cites(a, blobNorm, blobRaw)).map((a) => a.id);
-
-  // The other direction: which pasted entries match nothing we hold. Indexed
-  // by title prefix and by DOI so each entry is one lookup rather than a scan
-  // over the whole corpus.
-  const byTitlePrefix = new Map<string, true>();
-  const byDoi = new Map<string, true>();
-  for (const a of corpus) {
-    const t = norm(a.title);
-    if (t.length >= 30) byTitlePrefix.set(t.slice(0, 30), true);
-    const dk = doiKey(a.doi);
-    if (dk) byDoi.set(dk, true);
-  }
-
-  const entries = splitReferences(references);
-  const unmatched: string[] = [];
-  for (const entry of entries) {
-    const dk = doiKey(entry);
-    if (dk && byDoi.has(dk)) continue;
-    const en = norm(entry);
-    let hit = false;
-    for (const [prefix] of byTitlePrefix) {
-      if (en.includes(prefix)) {
-        hit = true;
-        break;
-      }
-    }
-    if (!hit) unmatched.push(entry.length > 220 ? `${entry.slice(0, 220)}...` : entry);
-  }
-
   return {
-    uncited,
-    unmatched,
-    entryCount: entries.length,
-    matchedCount: entries.length - unmatched.length,
+    uncited: candidates.filter((a) => !cites(a, blobNorm, blobRaw)).map((a) => a.id),
+    entryCount: splitReferences(references).length,
   };
 }
