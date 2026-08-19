@@ -649,7 +649,7 @@ export function TopicMap({
             ))}
           </ul>
         ) : (
-          <ul className="flex max-h-[15.5rem] flex-col gap-1 overflow-y-auto">
+          <ul className="flex flex-col gap-1">
             {journals.map((j) => (
               <li
                 key={j.id}
