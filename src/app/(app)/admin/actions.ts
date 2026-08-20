@@ -2,11 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isEmailConfigured, sendWelcomeEmail } from "@/lib/email";
+import { generateTempPassword } from "@/lib/temp-password";
 import { assignableRoles, canManage, getViewer } from "@/lib/users";
 import { isRole, type Role, type Viewer } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type AdminState = { status: "idle" | "ok" | "error"; message?: string };
+export type AdminState = {
+  status: "idle" | "ok" | "error";
+  message?: string;
+  /**
+   * Set when an action mints a temporary password. /admin shows it once so
+   * an editor can pass it on by hand - which is the only recourse when the
+   * mail send fails, and a useful backup when it succeeds but the message is
+   * still crawling through a university spam filter.
+   */
+  credentials?: { email: string; password: string };
+};
 
 // Long enough to be indefinite; Supabase has no "forever", and 'none' lifts
 // it. Deactivation is reversible by design - guest AEs rotate back.
@@ -159,6 +171,53 @@ export async function removeUser(_prev: AdminState, formData: FormData): Promise
   return { status: "ok", message: "Account deleted." };
 }
 
+/**
+ * Mails someone their temporary password and turns the outcome into a
+ * sentence for /admin.
+ *
+ * A failed send is deliberately not a failed action: the account exists and
+ * the password works either way, so the useful thing to do is hand the
+ * credentials to the editor rather than roll everything back and leave them
+ * with nothing.
+ */
+async function deliverPassword(options: {
+  email: string;
+  tempPassword: string;
+  invitedBy: string;
+  reissued: boolean;
+}): Promise<string> {
+  const { email, tempPassword, invitedBy, reissued } = options;
+
+  if (!isEmailConfigured) {
+    return "Email sending isn't configured on this deployment, so send them these details yourself:";
+  }
+
+  const sent = await sendWelcomeEmail({
+    to: email,
+    tempPassword,
+    siteUrl: process.env.NEXT_PUBLIC_SITE_URL!,
+    invitedBy,
+    reissued,
+  });
+
+  if (!sent.ok) {
+    console.error("[admin] welcome email failed", sent.error);
+    return `The email didn't go out (${sent.error}), so send them these details yourself:`;
+  }
+
+  return `Emailed to ${email}. If it doesn't arrive, these are the details to pass on by hand:`;
+}
+
+/**
+ * Creates the account outright, with a temporary password, and emails it.
+ *
+ * Supabase's own inviteUserByEmail is deliberately not used: it sends a
+ * one-time, time-limited token link, which expires while the message sits in
+ * a junk folder and gets spent outright by mail scanners that follow links
+ * before the human does. Nothing in this flow can expire or be consumed in
+ * transit - profiles.must_set_password is what makes the password temporary
+ * instead of the clock.
+ */
 export async function inviteUser(_prev: AdminState, formData: FormData): Promise<AdminState> {
   const g = await gate();
   if ("error" in g) return { status: "error", message: g.error };
@@ -185,39 +244,110 @@ export async function inviteUser(_prev: AdminState, formData: FormData): Promise
     return { status: "error", message: "An Editor-in-Chief needs a journal." };
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!siteUrl) {
-    return { status: "error", message: "NEXT_PUBLIC_SITE_URL is not set, so the invite link would be broken." };
+  if (!process.env.NEXT_PUBLIC_SITE_URL) {
+    return { status: "error", message: "NEXT_PUBLIC_SITE_URL is not set, so the sign-in link would be broken." };
   }
 
-  const { data, error } = await g.admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${siteUrl}/auth/confirm?next=/update-password`,
+  const tempPassword = generateTempPassword();
+  // email_confirm marks the address verified without a round trip. There is
+  // no confirmation link to click, and knowing the password is itself the
+  // proof of receipt that a confirmation link would have been.
+  const { data, error } = await g.admin.auth.admin.createUser({
+    email,
+    password: tempPassword,
+    email_confirm: true,
   });
 
   if (error) {
     const exists = /already been registered|already exists/i.test(error.message);
     return {
       status: "error",
-      message: exists ? `${email} already has an account.` : error.message,
+      message: exists
+        ? `${email} already has an account. Use "New password" on their row to send them a fresh one.`
+        : error.message,
     };
   }
 
   // The on_auth_user_created trigger inserts the profile with the column
-  // default ('ae') and no journal, so role and journal are set afterwards.
+  // defaults ('ae', no journal, must_set_password false), so the real values
+  // are set afterwards.
   if (data.user) {
     const { error: profileError } = await g.admin
       .from("profiles")
-      .update({ role, journal_id: journalId })
+      .update({ role, journal_id: journalId, must_set_password: true })
       .eq("id", data.user.id);
     if (profileError) {
       revalidatePath("/admin");
       return {
         status: "error",
-        message: `Invited ${email}, but saving their role failed: ${profileError.message}`,
+        message: `Created ${email}, but saving their role failed: ${profileError.message}`,
       };
     }
   }
 
+  const message = await deliverPassword({
+    email,
+    tempPassword,
+    invitedBy: g.viewer.email,
+    reissued: false,
+  });
+
   revalidatePath("/admin");
-  return { status: "ok", message: `Invite sent to ${email}.` };
+  return { status: "ok", message, credentials: { email, password: tempPassword } };
+}
+
+/**
+ * Issues a fresh temporary password for an existing account and emails it.
+ *
+ * This is the recovery path for anyone holding an unusable invite link from
+ * the old flow, and the everyday answer to "I never got it" - unlike the
+ * self-service reset on the sign-in page, it doesn't depend on the person
+ * being able to receive and click a link within the hour.
+ */
+export async function resetTempPassword(_prev: AdminState, formData: FormData): Promise<AdminState> {
+  const g = await gate();
+  if ("error" in g) return { status: "error", message: g.error };
+
+  const userId = String(formData.get("userId") || "");
+  if (userId === g.viewer.id) {
+    return { status: "error", message: "Change your own password from the sign-in page instead." };
+  }
+
+  const found = await loadManageableTarget(g.admin, g.viewer, userId);
+  if ("error" in found) return { status: "error", message: found.error };
+
+  if (!process.env.NEXT_PUBLIC_SITE_URL) {
+    return { status: "error", message: "NEXT_PUBLIC_SITE_URL is not set, so the sign-in link would be broken." };
+  }
+
+  const { data: authUser, error: lookupError } = await g.admin.auth.admin.getUserById(userId);
+  if (lookupError) return { status: "error", message: lookupError.message };
+  const email = authUser.user?.email;
+  if (!email) return { status: "error", message: "That account has no email address." };
+
+  const tempPassword = generateTempPassword();
+  // email_confirm here is what rescues accounts left unconfirmed by the old
+  // invite flow: without it they can hold a valid password and still be
+  // refused at sign-in.
+  const { error } = await g.admin.auth.admin.updateUserById(userId, {
+    password: tempPassword,
+    email_confirm: true,
+  });
+  if (error) return { status: "error", message: error.message };
+
+  const { error: profileError } = await g.admin
+    .from("profiles")
+    .update({ must_set_password: true })
+    .eq("id", userId);
+  if (profileError) return { status: "error", message: profileError.message };
+
+  const message = await deliverPassword({
+    email,
+    tempPassword,
+    invitedBy: g.viewer.email,
+    reissued: true,
+  });
+
+  revalidatePath("/admin");
+  return { status: "ok", message, credentials: { email, password: tempPassword } };
 }

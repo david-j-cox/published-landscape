@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState } from "react";
-import { removeUser, setActive, setRole, type AdminState } from "./actions";
+import { removeUser, resetTempPassword, setActive, setRole, type AdminState } from "./actions";
+import { Credentials } from "./credentials";
 import { LocalTime } from "./local-time";
 import { ROLE_LABELS, type Journal, type ManagedUser, type Role } from "@/lib/types";
 
@@ -29,10 +30,15 @@ export function UserRow({
   const [roleState, saveRole, savingRole] = useActionState(setRole, idle);
   const [activeState, toggleActive, togglingActive] = useActionState(setActive, idle);
   const [removeState, remove, removing] = useActionState(removeUser, idle);
+  const [resetState, resetPassword, resetting] = useActionState(resetTempPassword, idle);
 
-  const message = roleState.message ?? activeState.message ?? removeState.message;
+  const message =
+    roleState.message ?? activeState.message ?? removeState.message ?? resetState.message;
   const failed =
-    roleState.status === "error" || activeState.status === "error" || removeState.status === "error";
+    roleState.status === "error" ||
+    activeState.status === "error" ||
+    removeState.status === "error" ||
+    resetState.status === "error";
 
   // Someone whose role the viewer can't assign (an EiC seen by another EiC,
   // say) is shown read-only rather than hidden - context without control.
@@ -53,7 +59,7 @@ export function UserRow({
           )}
           {user.active && !user.activated && (
             <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
-              invite pending
+              hasn&apos;t signed in
             </span>
           )}
         </td>
@@ -110,6 +116,31 @@ export function UserRow({
         <td className={`${cellClass} whitespace-nowrap text-right`}>
           {!isSelf && (
             <div className="flex items-center justify-end gap-3">
+              {user.active && (
+                <form
+                  action={resetPassword}
+                  onSubmit={(event) => {
+                    // It invalidates whatever they are using right now, which
+                    // is a bad surprise for someone who is signed in and fine.
+                    if (
+                      !window.confirm(
+                        `Email ${user.email} a new temporary password?\n\nTheir current password stops working immediately, and they'll be asked to choose a new one when they sign in.`,
+                      )
+                    ) {
+                      event.preventDefault();
+                    }
+                  }}
+                >
+                  <input type="hidden" name="userId" value={user.id} />
+                  <button
+                    type="submit"
+                    disabled={resetting}
+                    className="text-xs text-neutral-500 underline disabled:opacity-50 hover:text-neutral-900 dark:hover:text-neutral-100"
+                  >
+                    {resetting ? "Sending..." : "New password"}
+                  </button>
+                </form>
+              )}
               <form action={toggleActive}>
                 <input type="hidden" name="userId" value={user.id} />
                 <input type="hidden" name="active" value={user.active ? "false" : "true"} />
@@ -158,6 +189,12 @@ export function UserRow({
             className={`px-3 pb-2 text-xs ${failed ? "text-red-600" : "text-neutral-500"}`}
           >
             {message}
+            {resetState.credentials && (
+              <Credentials
+                email={resetState.credentials.email}
+                password={resetState.credentials.password}
+              />
+            )}
           </td>
         </tr>
       )}

@@ -22,6 +22,8 @@ export type Viewer = {
   /** The journal an EiC administers. Null for admins and unassigned AEs. */
   journalId: number | null;
   active: boolean;
+  /** True while they are still on the temporary password they were emailed. */
+  mustSetPassword: boolean;
 };
 
 export type ManagedUser = {
@@ -32,7 +34,7 @@ export type ManagedUser = {
   active: boolean;
   createdAt: string | null;
   lastSignInAt: string | null;
-  /** False until the invitee follows their emailed link and sets a password. */
+  /** False while they are still on the temporary password they were emailed. */
   activated: boolean;
   loginCount: number;
 };

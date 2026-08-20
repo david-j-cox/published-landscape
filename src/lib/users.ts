@@ -41,12 +41,12 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
       );
       warnedNoServiceKey = true;
     }
-    return { id: user.id, email, role: "ae", journalId: null, active: true };
+    return { id: user.id, email, role: "ae", journalId: null, active: true, mustSetPassword: false };
   }
 
   const { data } = await admin
     .from("profiles")
-    .select("role, journal_id, active")
+    .select("role, journal_id, active, must_set_password")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -58,6 +58,9 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     // Absent profile row means something is wrong with the signup trigger;
     // treat it as active so a broken trigger doesn't lock everyone out.
     active: data?.active ?? true,
+    // Same reasoning in the other direction: if we can't tell, don't trap
+    // them on the set-a-password page.
+    mustSetPassword: data?.must_set_password ?? false,
   };
 });
 
@@ -78,7 +81,7 @@ export async function getManagedUsers(viewer: Viewer): Promise<ManagedUser[]> {
   }
 
   const [{ data: profiles }, { data: events }] = await Promise.all([
-    admin.from("profiles").select("id, role, journal_id, active"),
+    admin.from("profiles").select("id, role, journal_id, active, must_set_password"),
     admin.from("login_events").select("user_id"),
   ]);
 
@@ -99,7 +102,10 @@ export async function getManagedUsers(viewer: Viewer): Promise<ManagedUser[]> {
         active: profile?.active ?? true,
         createdAt: user.created_at ?? null,
         lastSignInAt: user.last_sign_in_at ?? null,
-        activated: Boolean(user.email_confirmed_at ?? user.confirmed_at),
+        // Their account is real from the moment it's created now, so what
+        // "activated" means is whether they've replaced the password we
+        // mailed them with one of their own.
+        activated: !(profile?.must_set_password ?? false),
         loginCount: loginCounts.get(user.id) ?? 0,
       };
     })

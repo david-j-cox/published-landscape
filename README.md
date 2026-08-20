@@ -26,9 +26,10 @@ journals**, **52 topics**, **12,670 authors**.
   marker on the topic map. PDF text never leaves the browser - only the
   extracted/edited text does.
 - **Admin** (`/admin`, admins only) - who has an account, their role, when
-  they last signed in, and a log of recent sign-ins; invite and remove people.
-- Whole site is gated behind Supabase Auth (invite-only magic link) - see
-  [Auth setup](#auth-setup).
+  they last signed in, and a log of recent sign-ins; add, reissue passwords
+  for, and remove people.
+- Whole site is gated behind Supabase Auth (invite-only, email + password) -
+  see [Auth setup](#auth-setup).
 
 A public, read-only, un-gated version of the topic map/articles/reviewers
 lives as a static demo (vanilla HTML/JS, no backend) deployed to GitHub
@@ -251,8 +252,8 @@ visible banner) until Supabase is configured, and reads the same
 
 ## Auth setup
 
-The whole site is gated behind Supabase Auth (invite-only magic link - no
-public signup). To turn it on:
+The whole site is gated behind Supabase Auth (invite-only, email and
+password - no public signup). To turn it on:
 
 1. Create a free project at [supabase.com/dashboard](https://supabase.com/dashboard).
 2. In the SQL Editor, run the files in `supabase/migrations/` in order. There
@@ -273,11 +274,48 @@ public signup). To turn it on:
    is the place to manage roles, but only an admin can reach it, so the first
    admin can't be made there.
    `update profiles set role = 'admin' where email = 'you@example.com';`
-6. From then on, invite people from `/admin` (or Authentication > Users >
-   Invite user).
-7. Optionally configure custom SMTP (Authentication > Emails > SMTP
-   Settings) so invite/magic-link emails send from your own domain instead
-   of Supabase's rate-limited shared sender.
+6. Sign up for [Resend](https://resend.com), verify a sending domain, and put
+   the API key and a `From` address at that domain into `RESEND_API_KEY` and
+   `EMAIL_FROM` (in `.env.local` and in Vercel). Without them accounts still
+   get created, but nothing is mailed - `/admin` shows the temporary password
+   for an editor to send on by hand, and says so.
+7. From then on, add people from `/admin`. Do not use Authentication > Users >
+   Invite user in the Supabase dashboard: that sends the token link this app
+   deliberately stopped using (see below).
+
+### Why accounts are created with a temporary password
+
+Supabase's invite email carries a one-time, time-limited token. Both halves of
+that failed against real university mailboxes:
+
+- **It expires.** The default is an hour (24h is the ceiling). A message that
+  sits in a junk folder overnight is dead before anyone opens it.
+- **It is single-use.** Corporate mail security (Safe Links, Proofpoint,
+  Mimecast) fetches links to scan them - which is exactly what happens to mail
+  that gets flagged as junk. The scanner spends the token and the person gets
+  "Link expired or invalid".
+
+So `/admin` creates the account outright with a generated temporary password
+and emails it, from our own sender, alongside a plain link to `/login`. Nothing
+in that email can expire or be consumed in transit. `profiles.must_set_password`
+is what keeps the password temporary: it is set at creation, the app redirects
+to `/update-password` and serves nothing else while it is true, and it clears
+the moment the person chooses their own password.
+
+"New password" on a person's row in `/admin` reissues that flow. It is the
+answer to "I never got the email", to a forgotten password, and to anyone left
+stranded on an old invite link.
+
+Leave Authentication > Sign In / Providers > "Secure password change" off. With
+it on, `supabase.auth.updateUser({ password })` demands a recent
+reauthentication, which is exactly what someone sitting on `/update-password`
+after their first sign-in cannot provide - they would be stuck in the loop the
+flag creates.
+
+Password reset links (the "email me a link" button on `/login`) still use
+Supabase tokens, because there is no alternative for self-service - so raise
+Authentication > Sign In / Providers > Email OTP Expiration to its 24h maximum,
+and treat "ask your editor for a new password" as the reliable path.
 
 ### Roles
 
@@ -287,7 +325,7 @@ they are people the tool *suggests*, not users - so there is no reviewer role.
 | Role | Map / articles / submit | `/admin` |
 | --- | --- | --- |
 | `admin` | all 12 journals | everyone; the only role that can delete accounts |
-| `eic` | all 12 journals | their own journal's AEs: invite, deactivate, reactivate |
+| `eic` | all 12 journals | their own journal's AEs: add, reissue password, deactivate, reactivate |
 | `ae` | all 12 journals | no access |
 
 **Journal affiliation (`profiles.journal_id`) is an administrative boundary,

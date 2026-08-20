@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getJournals } from "@/lib/data";
+import { isEmailConfigured } from "@/lib/email";
 import { assignableRoles, getLoginEvents, getManagedUsers, getViewer } from "@/lib/users";
 import type { Journal, ManagedUser } from "@/lib/types";
 import { InviteForm } from "./invite-form";
@@ -73,8 +74,8 @@ export default async function AdminPage() {
         {isAdmin ? (
           <>
             {active.length} active {active.length === 1 ? "account" : "accounts"} across all
-            journals{archived.length > 0 ? `, ${archived.length} archived` : ""}. Only invited
-            addresses can sign in.
+            journals{archived.length > 0 ? `, ${archived.length} archived` : ""}. Only addresses
+            added here can sign in.
           </>
         ) : (
           <>
@@ -88,11 +89,20 @@ export default async function AdminPage() {
         {isAdmin ? "Invite someone" : "Add an Associate Editor"}
       </h2>
       <p className="mb-3 mt-1 text-sm text-neutral-500">
-        They get an email link to set a password.
+        The account is created straight away and they&apos;re emailed a temporary password plus a
+        link to the sign-in page - nothing in that email expires, and they pick their own password
+        the first time they sign in.
         {isAdmin
           ? " An Editor-in-Chief needs a journal - they can add and remove that journal's AEs themselves."
           : ` They'll be added to ${ownJournal?.name ?? "your journal"}.`}
       </p>
+      {!isEmailConfigured && (
+        <p className="mb-3 rounded-md bg-amber-100 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+          RESEND_API_KEY and EMAIL_FROM aren&apos;t set on this deployment, so nothing is emailed.
+          Accounts are still created - the temporary password is shown here for you to send on
+          yourself.
+        </p>
+      )}
       <InviteForm
         journals={journals}
         assignable={assignable}
@@ -177,6 +187,8 @@ export default async function AdminPage() {
       )}
 
       <p className="mt-2 px-3 text-xs text-neutral-400">
+        &quot;New password&quot; emails someone a fresh temporary password and invalidates their old
+        one - that&apos;s the answer to &quot;I never got the email&quot; or a forgotten password.
         Deactivating blocks sign-in and frees a seat while keeping the person&apos;s history -
         that&apos;s the one to use when a guest AE&apos;s term ends, and it files them under Archive
         above. Last sign-in comes from Supabase and covers all time; the Sign-ins count only covers

@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { inviteUser, type AdminState } from "./actions";
+import { Credentials } from "./credentials";
 import { ROLE_LABELS, type Journal, type Role } from "@/lib/types";
 
 const initialState: AdminState = { status: "idle" };
@@ -60,7 +61,7 @@ export function InviteForm({
           disabled={pending}
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
         >
-          {pending ? "Sending..." : "Send invite"}
+          {pending ? "Creating..." : "Add and email"}
         </button>
       </form>
       {state.message && (
@@ -69,6 +70,9 @@ export function InviteForm({
         >
           {state.message}
         </p>
+      )}
+      {state.credentials && (
+        <Credentials email={state.credentials.email} password={state.credentials.password} />
       )}
     </div>
   );
