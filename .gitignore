@@ -43,6 +43,18 @@ yarn-error.log*
 # local-only pricing / cost docs (never publish to the public repo)
 /docs/
 
+# course materials: institutional syllabi and publisher PDFs. Local-only -
+# the PDFs are licensed to the individual/institution, not redistributable,
+# and this repo is public.
+/Core Courses Syllabi/
+/Course Articles/
+/syllabi.zip
+
+# commercial market analysis for the publishing venture. Local-only - names
+# specific societies as acquisition targets and carries pricing assumptions.
+# This repo is public.
+/Market Analysis/
+
 # python
 __pycache__/
 *.pyc
