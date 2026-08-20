@@ -20,7 +20,7 @@ export function LoginForm({ next, deactivated }: { next: string; deactivated?: b
       <div>
         <h1 className="text-xl font-semibold">Published Landscape</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Sign in with the email your editor invited you with.
+          Sign in with the email your editor added you with.
         </p>
       </div>
 
@@ -65,7 +65,12 @@ export function LoginForm({ next, deactivated }: { next: string; deactivated?: b
 
       <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800">
         <p className="text-sm text-neutral-500">
-          First time signing in, or forgot your password? We&apos;ll email you a link to set one.
+          <strong className="font-medium text-neutral-700 dark:text-neutral-300">
+            First time here?
+          </strong>{" "}
+          Sign in above with the temporary password your editor emailed you, and you&apos;ll be
+          asked to choose your own. Forgotten your password instead? We can email you a link to set
+          a new one - it only works once and expires within the hour, so open it right away.
         </p>
         <form action={resetAction} className="mt-3">
           <input type="hidden" name="email" value={email} />

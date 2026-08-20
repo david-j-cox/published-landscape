@@ -28,7 +28,7 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
     return {
       status: "error",
       message: invalid
-        ? "Incorrect email or password. If this is your first time here, set a password below."
+        ? "Incorrect email or password. If this is your first time here, use the temporary password your editor emailed you."
         : error.message,
     };
   }
@@ -47,9 +47,11 @@ export async function sendPasswordReset(
   if (!email) return { status: "error", message: "Enter your email address first." };
 
   const supabase = await createClient();
-  // resetPasswordForEmail never creates a user and (to avoid account
-  // enumeration) doesn't error on unknown addresses - so invite-only is
-  // preserved and the message stays deliberately vague.
+  // This is the forgotten-password path only; first sign-in goes through the
+  // temporary password an editor mailed them, precisely because these links
+  // are one-shot and short-lived. resetPasswordForEmail never creates a user
+  // and (to avoid account enumeration) doesn't error on unknown addresses -
+  // so invite-only is preserved and the message stays deliberately vague.
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/confirm?next=/update-password`,
   });
@@ -57,6 +59,6 @@ export async function sendPasswordReset(
   if (error) return { status: "error", message: error.message };
   return {
     status: "sent",
-    message: `If ${email} is on the reviewer/editor list, a link to set your password is on its way.`,
+    message: `If ${email} is on the reviewer/editor list, a link to set your password is on its way. It can only be used once and times out within the hour, so open it soon - if it says it has expired, ask your editor to send you a new password instead.`,
   };
 }

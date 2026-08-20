@@ -9,6 +9,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // getViewer is cache()d, so this shares the NavBar's lookup.
   const viewer = await getViewer();
   if (viewer && !viewer.active) redirect("/login?deactivated=1");
+  // Someone who signed in with the temporary password we emailed has exactly
+  // one destination until they replace it. /update-password lives outside
+  // this layout, so this can't loop.
+  if (viewer?.mustSetPassword) redirect("/update-password");
 
   return (
     <div className="flex min-h-screen flex-col">
