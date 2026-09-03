@@ -17,8 +17,13 @@ import type {
  * they always were; the corpus stores that in corpus_article.openalex_id.
  */
 
-/** Authors in the order OpenAlex lists them: first, then middle, then last. */
-const POSITION_ORDER = sql`case aa.position when 'first' then 0 when 'middle' then 1 else 2 end`;
+/**
+ * Authors in the order OpenAlex lists them: first, then middle, then last.
+ * A function, not a constant: a fragment built at module level would open
+ * the connection on import, which `next build` does with no database.
+ */
+const positionOrder = () =>
+  sql`case aa.position when 'first' then 0 when 'middle' then 1 else 2 end`;
 
 function authorsShortOf(names: string[]): string {
   const surnames = names.map((n) => n.split(" ").pop() ?? n);
@@ -58,7 +63,7 @@ export async function authorsFor(ids: string[]): Promise<Map<string, ArticleAuth
     join corpus_article a on a.id = aa.article_id
     join corpus_author au on au.id = aa.author_id
     where a.openalex_id = any(${ids})
-    order by a.openalex_id, ${POSITION_ORDER}, au.display_name`;
+    order by a.openalex_id, ${positionOrder()}, au.display_name`;
   for (const r of rows) {
     const list = out.get(r.openalex_id) ?? [];
     list.push({
@@ -108,7 +113,7 @@ function toSummary(a: Article): ArticleSummary {
   };
 }
 
-const ARTICLE_COLUMNS = sql`
+const articleColumns = () => sql`
   a.openalex_id, a.journal_id, a.title, a.abstract, a.has_full_abstract, a.keywords,
   a.year, a.publication_date, a.doi, a.type, a.map_x, a.map_y, a.cluster_id, a.related`;
 
@@ -151,7 +156,7 @@ export async function getMapPoints(): Promise<MapPoint[]> {
       journal_id: number; year: number | null; title: string; names: string | null }[]
   >`
     select a.openalex_id, a.map_x, a.map_y, a.cluster_id, a.journal_id, a.year, a.title,
-      (select string_agg(au.display_name, '|' order by ${POSITION_ORDER}, au.display_name)
+      (select string_agg(au.display_name, '|' order by ${positionOrder()}, au.display_name)
          from corpus_article_author aa join corpus_author au on au.id = aa.author_id
         where aa.article_id = a.id) as names
     from corpus_article a
@@ -204,7 +209,7 @@ export async function getArticles(filters: ArticleFilters = {}): Promise<{
   const where = all(parts);
 
   const rows = await sql<(ArticleRow & { total: number })[]>`
-    select ${ARTICLE_COLUMNS}, count(*) over()::int as total
+    select ${articleColumns()}, count(*) over()::int as total
     from corpus_article a
     where a.openalex_id is not null and ${where}
     order by a.year desc nulls last, a.title
@@ -221,7 +226,7 @@ export async function getArticles(filters: ArticleFilters = {}): Promise<{
 export async function getArticlesByIds(ids: string[]): Promise<Article[]> {
   if (ids.length === 0) return [];
   const rows = await sql<ArticleRow[]>`
-    select ${ARTICLE_COLUMNS} from corpus_article a where a.openalex_id = any(${ids})`;
+    select ${articleColumns()} from corpus_article a where a.openalex_id = any(${ids})`;
   const authors = await authorsFor(ids);
   const byId = new Map(rows.map((r) => [r.openalex_id, r]));
   return ids.flatMap((id) => {

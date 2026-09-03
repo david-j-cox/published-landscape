@@ -178,7 +178,8 @@ interface NearRow {
   similarity: number;
 }
 
-const NEAR_COLUMNS = sql`
+// A function rather than a module-level fragment: see positionOrder in data.ts.
+const nearColumns = () => sql`
   a.openalex_id, a.title, a.year, a.journal_id, a.doi, a.cluster_id, a.map_x, a.map_y`;
 
 function toNeighbor(r: NearRow, authors: ArticleAuthor[]): PlacementNeighbor {
@@ -219,7 +220,7 @@ export async function placeArticle(
    * short of ten neighbours.
    */
   const nearest = (tx: typeof sql, where: Fragment, limit: number) => tx<NearRow[]>`
-    select ${NEAR_COLUMNS}, 1 - (a.embedding <=> ${vec}::vector) as similarity
+    select ${nearColumns()}, 1 - (a.embedding <=> ${vec}::vector) as similarity
     from corpus_article a
     where a.openalex_id is not null and ${where}
     order by a.embedding <=> ${vec}::vector

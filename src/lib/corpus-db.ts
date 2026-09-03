@@ -46,8 +46,33 @@ function connect() {
   });
 }
 
-export const sql = globalForCorpus.corpusSql ?? connect();
-if (process.env.NODE_ENV !== "production") globalForCorpus.corpusSql = sql;
+function instance() {
+  if (!globalForCorpus.corpusSql) globalForCorpus.corpusSql = connect();
+  return globalForCorpus.corpusSql;
+}
+
+type Sql = ReturnType<typeof postgres>;
+
+/**
+ * Connected on first use, not on import.
+ *
+ * `next build` imports every route module to collect page data, in an
+ * environment that has no database: CI has no CORPUS_DATABASE_URL at all,
+ * and a Vercel build does not need one. Opening the connection at module
+ * level threw there and failed the build (2026-09-03). The proxy forwards a
+ * tagged-template call and every property (`begin`, `json`, `unsafe`) to a
+ * real instance created the first time anything asks.
+ */
+export const sql: Sql = new Proxy(function proxied() {} as unknown as Sql, {
+  apply(_target, _thisArg, args: unknown[]) {
+    return (instance() as unknown as (...a: unknown[]) => unknown)(...args);
+  },
+  get(_target, prop) {
+    const real = instance() as unknown as Record<string | symbol, unknown>;
+    const value = real[prop];
+    return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(real) : value;
+  },
+});
 
 export type Fragment = ReturnType<typeof sql>;
 
