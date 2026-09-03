@@ -30,6 +30,7 @@ const JOURNAL_COLORS: Record<string, string> = {
   "1053-0819": "#a5b4fc", // Journal of Behavioral Education - periwinkle
   "1543-4494": "#06b6d4", // Learning & Behavior - cyan
   "2329-8456": "#84cc16", // JEP: Animal Learning and Cognition - lime
+  "0145-4455": "#fb923c", // Behavior Modification - light orange
 };
 const FALLBACK_JOURNAL_COLOR = "#ec4899"; // any future unmapped journal
 
