@@ -9,8 +9,35 @@ places every article in a "topic space" by what it's actually about, and
 lets readers browse by theme and associate editors find reviewers by
 expertise instead of by memory.
 
-Current corpus: **7,692 articles**, **93.1% with a real abstract**, **14
-journals**, **52 topics**, **12,670 authors**.
+## Where the literature comes from
+
+Since 3 September 2026 this app reads its corpus from the Writer's Trellis
+database (the `thesis-scaffold` project) rather than from files in `data/`.
+That project forked the pipeline below and kept going: 46,000 articles across
+35 years and 22 journals, vectors in pgvector, and the citation edges from
+every review in the corpus. The two apps now share one corpus, rebuilt every
+Monday by that project's `refresh-corpus.yml`, and a feature built against it
+there can be brought here without a data port.
+
+The app connects as `corpus_reader`, a role that can `SELECT` from the six
+`corpus_*` tables and reach nothing else (see
+`thesis-scaffold/scripts/create-corpus-reader.sql`). Set `CORPUS_DATABASE_URL`
+to that role's pooled Neon connection string. Two optional variables narrow
+what is shown without changing what is stored: `CORPUS_YEARS_BACK` keeps the
+last N years (default 10, the window this app always had; `all` for the whole
+corpus) and `CORPUS_JOURNALS` is a comma-separated list of ISSN-Ls (unset
+means every journal).
+
+`src/lib/data.ts` and `src/lib/placement.ts` are the only files that query it.
+Placement projects a manuscript with the model row in `corpus_model` and asks
+pgvector for the nearest articles; the math is unchanged from the in-memory
+version.
+
+The pipeline scripts in `scripts/` and the files in `data/` remain for the
+static GitHub Pages demo, which has no database. They no longer feed the app.
+
+Previous corpus, still used by the demo: **7,692 articles**, **93.1% with a
+real abstract**, **14 journals**, **52 topics**, **12,670 authors**.
 
 ## What's here
 

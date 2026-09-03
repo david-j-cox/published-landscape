@@ -2,6 +2,11 @@ import { redirect } from "next/navigation";
 import { NavBar } from "@/components/nav-bar";
 import { getViewer } from "@/lib/users";
 
+// Everything under here reads a database that changes weekly and sits behind
+// sign-in, so there is nothing to gain from prerendering at build time and a
+// build environment has no database to prerender from.
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Deactivating bans the account at the Supabase auth level, but an access
   // token already in a browser stays valid until it expires. Checking the

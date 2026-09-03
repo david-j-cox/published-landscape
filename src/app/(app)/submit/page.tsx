@@ -1,6 +1,7 @@
 import { getJournals, getYears } from "@/lib/data";
 import { SubmitForm } from "./submit-form";
 
-export default function SubmitPage() {
-  return <SubmitForm journals={getJournals()} years={getYears()} />;
+export default async function SubmitPage() {
+  const [journals, years] = await Promise.all([getJournals(), getYears()]);
+  return <SubmitForm journals={journals} years={years} />;
 }

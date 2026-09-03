@@ -12,11 +12,9 @@ export const metadata = {
   description: "How the topic model behind this is built.",
 };
 
-export default function NerdsPage() {
-  const { articles, abstractCoverage } = getCorpusStats();
-  const { vocabSize, svdDims } = getModelStats();
-  const clusters = getClusters();
-  const years = getYears();
+export default async function NerdsPage() {
+  const [{ articles, abstractCoverage }, { vocabSize, svdDims }, clusters, years] =
+    await Promise.all([getCorpusStats(), getModelStats(), getClusters(), getYears()]);
   const largest = clusters[0];
 
   return (
