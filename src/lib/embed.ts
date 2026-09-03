@@ -1,4 +1,4 @@
-import { env, pipeline, type FeatureExtractionPipeline } from "@huggingface/transformers";
+import type { FeatureExtractionPipeline } from "@huggingface/transformers";
 
 /**
  * Embeds a query into the frozen space, with the same model that embedded
@@ -28,17 +28,27 @@ let loading: Promise<FeatureExtractionPipeline> | null = null;
 
 function load(): Promise<FeatureExtractionPipeline> {
   if (loading) return loading;
-  // The model files are fetched once per instance and cached. Serverless
-  // filesystems are read-only outside /tmp.
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    env.cacheDir = "/tmp/transformers-cache";
-  }
-  loading = pipeline("feature-extraction", ONNX_MODEL, { dtype: "q8" }).catch((error) => {
+  loading = (async () => {
+    // Imported on first use, not at module load. Importing the package
+    // dlopens ONNX Runtime's native library, and every route that touches
+    // placement (the For Nerds page reads the model's vocabulary size from
+    // it) would otherwise pay for that, or fail on it, before rendering a
+    // word. Only a call that actually embeds text needs the runtime.
+    const { env, pipeline } = await import("@huggingface/transformers");
+    // The model files are fetched once per instance and cached. Serverless
+    // filesystems are read-only outside /tmp.
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      env.cacheDir = "/tmp/transformers-cache";
+    }
+    return (await pipeline("feature-extraction", ONNX_MODEL, {
+      dtype: "q8",
+    })) as FeatureExtractionPipeline;
+  })().catch((error) => {
     // A transient download failure must not disable search for the life of
     // the instance.
     loading = null;
     throw error;
-  }) as Promise<FeatureExtractionPipeline>;
+  });
   return loading;
 }
 
