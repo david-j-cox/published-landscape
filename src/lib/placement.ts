@@ -109,6 +109,23 @@ function projectToLatent(
   return { latent, matchedTermCount };
 }
 
+let iterativePromise: Promise<boolean> | null = null;
+
+/** Whether this pgvector knows hnsw.iterative_scan, checked once per process. */
+function iterativeScanAvailable(): Promise<boolean> {
+  if (iterativePromise) return iterativePromise;
+  iterativePromise = (async () => {
+    const [row] = await sql<{ extversion: string }[]>`
+      select extversion from pg_extension where extname = 'vector'`;
+    const [major, minor] = (row?.extversion ?? "0.0").split(".").map(Number);
+    return major > 0 || minor >= 8;
+  })().catch(() => {
+    iterativePromise = null;
+    return false;
+  });
+  return iterativePromise;
+}
+
 export async function getModelStats(): Promise<{ vocabSize: number; svdDims: number }> {
   const { model } = await loadModel();
   return { vocabSize: model.vocab.length, svdDims: model.dims };
@@ -228,6 +245,16 @@ export async function placeArticle(
   // stay tighter, to the closest matches only.
   const [pool, filteredNeighbors, scanned] = await sql.begin(async (tx) => {
     await tx`set local hnsw.ef_search = ${sql.unsafe(String(Math.max(CITATION_SCAN, reviewerPoolSize)))}`;
+    /*
+     * The scope and the filters are WHERE clauses, and an HNSW scan applies
+     * them after it has picked its ef_search candidates. With a ten-year
+     * window over a 35-year corpus, most of the two hundred nearest are older
+     * and the reference check came back with forty-four. Iterative scanning,
+     * from pgvector 0.8, keeps walking the index until the LIMIT is met.
+     */
+    if (await iterativeScanAvailable()) {
+      await tx`set local hnsw.iterative_scan = relaxed_order`;
+    }
     const p = await nearest(tx as unknown as typeof sql, inScope, reviewerPoolSize);
     const f = filtered ? await nearest(tx as unknown as typeof sql, withFilters, topK) : null;
     const c = wantCitations
