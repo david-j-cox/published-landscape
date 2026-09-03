@@ -2,6 +2,7 @@ import "server-only";
 import { checkReferences } from "@/lib/references";
 import { all, scope, sql, type Fragment } from "@/lib/corpus-db";
 import { authorsFor } from "@/lib/data";
+import { EMBEDDER, embedQuery } from "@/lib/embed";
 import type { ArticleAuthor, CandidateReviewer, PlacementNeighbor } from "@/lib/types";
 
 /*
@@ -22,6 +23,8 @@ interface Model {
   vocab: string[];
   idf: number[];
   components: number[][];
+  /** The frozen space, when corpus_space names the model this build carries. */
+  embedder: string | null;
 }
 
 let modelPromise: Promise<{ model: Model; vocabIndex: Map<string, number> }> | null = null;
@@ -33,11 +36,19 @@ function loadModel() {
       { dims: number; vocab: string[]; idf: number[]; components: number[][] }[]
     >`select dims, vocab, idf, components from corpus_model where id = 1`;
     if (!row) throw new Error("corpus_model is empty: the corpus has not been loaded.");
+    const [space] = await sql<{ embedder: string }[]>`select embedder from corpus_space where id = 1`;
+    const embedder = space?.embedder ?? null;
+    if (embedder && embedder !== EMBEDDER) {
+      console.error(
+        `[placement] corpus_space names ${embedder} but this build embeds with ${EMBEDDER}; using the TF-IDF projection`,
+      );
+    }
     const model: Model = {
       dims: row.dims,
       vocab: row.vocab,
       idf: row.idf,
       components: row.components,
+      embedder: embedder === EMBEDDER ? embedder : null,
     };
     return { model, vocabIndex: new Map(model.vocab.map((t, i) => [t, i])) };
   })().catch((error) => {
@@ -203,8 +214,12 @@ export async function placeArticle(
   references = "",
 ): Promise<PlacementResult> {
   const { model, vocabIndex } = await loadModel();
+  // The vocabulary match count stays as the "is there enough text" guard
+  // whichever space is searched; the vector itself comes from the frozen
+  // space when the corpus has one.
   const { latent, matchedTermCount } = projectToLatent(title, abstract, model, vocabIndex);
-  const vec = JSON.stringify(latent);
+  const vec = JSON.stringify(model.embedder ? await embedQuery(queryText(title, abstract)) : latent);
+  const column = model.embedder ? sql`embedding_st` : sql`embedding`;
   const { where: inScope } = await scope();
 
   /**
@@ -220,10 +235,10 @@ export async function placeArticle(
    * short of ten neighbours.
    */
   const nearest = (tx: typeof sql, where: Fragment, limit: number) => tx<NearRow[]>`
-    select ${nearColumns()}, 1 - (a.embedding <=> ${vec}::vector) as similarity
+    select ${nearColumns()}, 1 - (a.${column} <=> ${vec}::vector) as similarity
     from corpus_article a
-    where a.openalex_id is not null and ${where}
-    order by a.embedding <=> ${vec}::vector
+    where a.openalex_id is not null and a.${column} is not null and ${where}
+    order by a.${column} <=> ${vec}::vector
     limit ${limit}`;
 
   const { yearMin, yearMax, journalId } = filters;
