@@ -66,11 +66,20 @@ export function all(parts: Fragment[]): Fragment {
 
 /**
  * The years in scope, as a lower bound on the year column, or null for all.
- * Computed against the current year, so "last 10 years" rolls forward without
- * anyone editing an environment variable each January.
+ *
+ * Ten years unless CORPUS_YEARS_BACK says otherwise, which is the window this
+ * app always showed: an editor looking for a reviewer wants who is publishing
+ * now, and the map draws a circle per point, which is comfortable at sixteen
+ * thousand points and not at forty-six. Setting it to 0 or "all" shows the
+ * whole corpus. Computed against the current year, so the window rolls
+ * forward without anyone editing an environment variable each January.
  */
+const DEFAULT_YEARS_BACK = 10;
+
 export function yearFloor(): number | null {
-  const back = Number(process.env.CORPUS_YEARS_BACK);
+  const raw = (process.env.CORPUS_YEARS_BACK ?? "").trim().toLowerCase();
+  if (raw === "all") return null;
+  const back = raw === "" ? DEFAULT_YEARS_BACK : Number(raw);
   if (!Number.isFinite(back) || back <= 0) return null;
   return new Date().getUTCFullYear() - Math.floor(back) + 1;
 }

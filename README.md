@@ -24,9 +24,9 @@ The app connects as `corpus_reader`, a role that can `SELECT` from the six
 `thesis-scaffold/scripts/create-corpus-reader.sql`). Set `CORPUS_DATABASE_URL`
 to that role's pooled Neon connection string. Two optional variables narrow
 what is shown without changing what is stored: `CORPUS_YEARS_BACK` keeps the
-last N years and `CORPUS_JOURNALS` is a comma-separated list of ISSN-Ls. Unset,
-everything in the corpus is shown; `CORPUS_YEARS_BACK=10` gives roughly the
-window this app had before.
+last N years (default 10, the window this app always had; `all` for the whole
+corpus) and `CORPUS_JOURNALS` is a comma-separated list of ISSN-Ls (unset
+means every journal).
 
 `src/lib/data.ts` and `src/lib/placement.ts` are the only files that query it.
 Placement projects a manuscript with the model row in `corpus_model` and asks
