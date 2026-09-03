@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { getClusters, getJournals, getYears } from "@/lib/data";
 
-export default function Home() {
-  const journals = getJournals();
-  const clusters = getClusters();
-  const years = getYears();
+export default async function Home() {
+  const [journals, clusters, years] = await Promise.all([getJournals(), getClusters(), getYears()]);
   const totalArticles = clusters.reduce((s, c) => s + c.count, 0);
 
   return (

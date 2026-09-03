@@ -1,5 +1,13 @@
 import "server-only";
-import type { Article } from "@/lib/types";
+
+/** What the check needs of an article: enough to recognise it in a bibliography. */
+export type Citable = {
+  id: string;
+  title: string;
+  doi: string | null;
+  year: number | null;
+  authors: { display_name: string }[];
+};
 
 /**
  * Reference-list checking for a submission.
@@ -92,7 +100,7 @@ export function splitReferences(text: string): string[] {
 }
 
 /** Does this reference blob appear to cite this article? */
-function cites(article: Article, blobNorm: string, blobRaw: string): boolean {
+function cites(article: Citable, blobNorm: string, blobRaw: string): boolean {
   const dk = doiKey(article.doi);
   if (dk && blobRaw.toLowerCase().includes(dk)) return true;
 
@@ -128,7 +136,7 @@ function cites(article: Article, blobNorm: string, blobRaw: string): boolean {
  * @param candidates  corpus articles ranked by relevance to the submission
  * @param references  the reference list, pasted as free text
  */
-export function checkReferences(candidates: Article[], references: string): CitationCheck {
+export function checkReferences(candidates: Citable[], references: string): CitationCheck {
   const blobRaw = references;
   const blobNorm = norm(references);
   return {

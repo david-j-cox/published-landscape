@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const references =
     typeof body?.references === "string" ? body.references.slice(0, 60_000) : "";
 
-  const result = placeArticle(
+  const result = await placeArticle(
     title,
     abstract,
     10,

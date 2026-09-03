@@ -50,8 +50,15 @@ export default async function AdminPage() {
   // an AE who wandered in.
   if (!viewer || (viewer.role !== "admin" && viewer.role !== "eic")) notFound();
 
-  const journals = getJournals();
-  const [users, events] = await Promise.all([getManagedUsers(viewer), getLoginEvents(viewer)]);
+  // The journal ids come from the shared corpus now, and profiles.journal_id
+  // still references the twelve rows seeded into Supabase by migration 0005.
+  // They agree because the corpus pipeline assigns ids by list order and only
+  // ever appends, so the first twelve are the seed in the seed's order.
+  const [journals, users, events] = await Promise.all([
+    getJournals(),
+    getManagedUsers(viewer),
+    getLoginEvents(viewer),
+  ]);
 
   const isAdmin = viewer.role === "admin";
   const assignable = assignableRoles(viewer);

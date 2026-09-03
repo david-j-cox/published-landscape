@@ -1,27 +1,99 @@
 import "server-only";
-import corpusJson from "@/data/corpus.json";
-import type { Article, ArticleDetail, ArticleSummary, Cluster, Journal, MapPoint } from "@/lib/types";
+import { all, scope, sql } from "@/lib/corpus-db";
+import type {
+  Article,
+  ArticleAuthor,
+  ArticleDetail,
+  ArticleSummary,
+  Cluster,
+  Journal,
+  MapPoint,
+} from "@/lib/types";
 
-// v1 data source: the OpenAlex-derived static corpus checked into the repo
-// (scripts/ingest_openalex.py + scripts/build_layout.py). Every function
-// here is written so that swapping to live Supabase queries later only
-// means rewriting these bodies - callers (pages, API routes) don't change.
-const corpus = corpusJson as {
-  journals: Journal[];
-  clusters: Cluster[];
-  articles: Article[];
-};
+/*
+ * Every function here used to read data/corpus.json. The bodies are now SQL
+ * against the shared corpus (see corpus-db.ts) and the callers changed only
+ * in becoming async. Articles are addressed by OpenAlex id throughout, as
+ * they always were; the corpus stores that in corpus_article.openalex_id.
+ */
 
-const articlesById = new Map(corpus.articles.map((a) => [a.id, a]));
-const journalsById = new Map(corpus.journals.map((j) => [j.id, j]));
-const clustersById = new Map(corpus.clusters.map((c) => [c.id, c]));
+/** Authors in the order OpenAlex lists them: first, then middle, then last. */
+const POSITION_ORDER = sql`case aa.position when 'first' then 0 when 'middle' then 1 else 2 end`;
 
-function authorsShort(article: Article): string {
-  const names = article.authors.map((a) => a.display_name.split(" ").pop());
-  if (names.length === 0) return "";
-  if (names.length === 1) return names[0]!;
-  if (names.length === 2) return `${names[0]} & ${names[1]}`;
-  return `${names[0]} et al.`;
+function authorsShortOf(names: string[]): string {
+  const surnames = names.map((n) => n.split(" ").pop() ?? n);
+  if (surnames.length === 0) return "";
+  if (surnames.length === 1) return surnames[0]!;
+  if (surnames.length === 2) return `${surnames[0]} & ${surnames[1]}`;
+  return `${surnames[0]} et al.`;
+}
+
+interface ArticleRow {
+  openalex_id: string;
+  journal_id: number | null;
+  title: string;
+  abstract: string;
+  has_full_abstract: boolean;
+  keywords: string[];
+  year: number | null;
+  publication_date: string | null;
+  doi: string | null;
+  type: string | null;
+  map_x: number | null;
+  map_y: number | null;
+  cluster_id: number | null;
+  related: string[];
+}
+
+/** The authors of a set of articles, keyed by the article's OpenAlex id. */
+export async function authorsFor(ids: string[]): Promise<Map<string, ArticleAuthor[]>> {
+  const out = new Map<string, ArticleAuthor[]>();
+  if (ids.length === 0) return out;
+  const rows = await sql<
+    { openalex_id: string; id: string; display_name: string; orcid: string | null;
+      position: string | null; is_corresponding: boolean }[]
+  >`
+    select a.openalex_id, au.id, au.display_name, au.orcid, aa.position, aa.is_corresponding
+    from corpus_article_author aa
+    join corpus_article a on a.id = aa.article_id
+    join corpus_author au on au.id = aa.author_id
+    where a.openalex_id = any(${ids})
+    order by a.openalex_id, ${POSITION_ORDER}, au.display_name`;
+  for (const r of rows) {
+    const list = out.get(r.openalex_id) ?? [];
+    list.push({
+      id: r.id,
+      display_name: r.display_name,
+      orcid: r.orcid,
+      position: (r.position as ArticleAuthor["position"]) ?? null,
+      is_corresponding: r.is_corresponding,
+    });
+    out.set(r.openalex_id, list);
+  }
+  return out;
+}
+
+function toArticle(r: ArticleRow, authors: ArticleAuthor[]): Article {
+  return {
+    id: r.openalex_id,
+    journal_id: r.journal_id ?? -1,
+    title: r.title,
+    abstract: r.abstract || null,
+    has_full_abstract: r.has_full_abstract,
+    // The corpus keeps the cleaned subject tags rather than OpenAlex's scored
+    // topic list; the article page shows them where an abstract is missing.
+    openalex_topics: (r.keywords ?? []).map((k) => ({ display_name: k, score: null })),
+    openalex_keywords: r.keywords ?? [],
+    year: r.year,
+    publication_date: r.publication_date,
+    doi: r.doi,
+    type: r.type ?? "article",
+    authors,
+    x: r.map_x ?? 0,
+    y: r.map_y ?? 0,
+    cluster_id: r.cluster_id ?? -1,
+    related: r.related ?? [],
+  };
 }
 
 function toSummary(a: Article): ArticleSummary {
@@ -31,30 +103,72 @@ function toSummary(a: Article): ArticleSummary {
     year: a.year,
     journal_id: a.journal_id,
     cluster_id: a.cluster_id,
-    authorsShort: authorsShort(a),
+    authorsShort: authorsShortOf(a.authors.map((au) => au.display_name)),
     hasAbstract: a.has_full_abstract,
   };
 }
 
-export function getJournals(): Journal[] {
-  return corpus.journals;
-}
+const ARTICLE_COLUMNS = sql`
+  a.openalex_id, a.journal_id, a.title, a.abstract, a.has_full_abstract, a.keywords,
+  a.year, a.publication_date, a.doi, a.type, a.map_x, a.map_y, a.cluster_id, a.related`;
 
-export function getClusters(): Cluster[] {
-  return [...corpus.clusters].sort((a, b) => b.count - a.count);
-}
-
-export function getMapPoints(): MapPoint[] {
-  return corpus.articles.map((a) => ({
-    id: a.id,
-    x: a.x,
-    y: a.y,
-    cluster_id: a.cluster_id,
-    journal_id: a.journal_id,
-    year: a.year,
-    title: a.title,
-    authorsShort: authorsShort(a),
+export async function getJournals(): Promise<Journal[]> {
+  const rows = await sql<
+    { id: number; name: string; issn_l: string | null; openalex_source_id: string | null }[]
+  >`select id, name, issn_l, openalex_source_id from corpus_journal order by id`;
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    issn_l: r.issn_l ?? "",
+    openalex_source_id: r.openalex_source_id ?? "",
   }));
+}
+
+/** Topic groups with how many in-scope articles each holds, largest first. */
+export async function getClusters(): Promise<Cluster[]> {
+  const rows = await sql<{ id: number; label: string; count: number }[]>`
+    select c.id, c.label, count(a.id)::int as count
+    from corpus_cluster c
+    left join corpus_article a on a.cluster_id = c.id and ${(await scope()).where}
+    group by c.id, c.label
+    having count(a.id) > 0
+    order by count desc, c.id`;
+  return rows;
+}
+
+/*
+ * The whole map, cached for a while. Forty-six thousand rows with an author
+ * string each is the largest thing this app sends, the corpus changes once a
+ * week, and every visit to /map would otherwise run the same query.
+ */
+let mapCache: { at: number; points: MapPoint[] } | null = null;
+const MAP_TTL_MS = 10 * 60 * 1000;
+
+export async function getMapPoints(): Promise<MapPoint[]> {
+  if (mapCache && Date.now() - mapCache.at < MAP_TTL_MS) return mapCache.points;
+  const rows = await sql<
+    { openalex_id: string; map_x: number; map_y: number; cluster_id: number;
+      journal_id: number; year: number | null; title: string; names: string | null }[]
+  >`
+    select a.openalex_id, a.map_x, a.map_y, a.cluster_id, a.journal_id, a.year, a.title,
+      (select string_agg(au.display_name, '|' order by ${POSITION_ORDER}, au.display_name)
+         from corpus_article_author aa join corpus_author au on au.id = aa.author_id
+        where aa.article_id = a.id) as names
+    from corpus_article a
+    where a.map_x is not null and a.map_y is not null and a.cluster_id is not null
+      and a.openalex_id is not null and ${(await scope()).where}`;
+  const points = rows.map((r) => ({
+    id: r.openalex_id,
+    x: r.map_x,
+    y: r.map_y,
+    cluster_id: r.cluster_id,
+    journal_id: r.journal_id,
+    year: r.year,
+    title: r.title,
+    authorsShort: authorsShortOf(r.names ? r.names.split("|") : []),
+  }));
+  mapCache = { at: Date.now(), points };
+  return points;
 }
 
 export type ArticleFilters = {
@@ -66,57 +180,81 @@ export type ArticleFilters = {
   pageSize?: number;
 };
 
-export function getArticles(filters: ArticleFilters = {}): {
+export async function getArticles(filters: ArticleFilters = {}): Promise<{
   results: ArticleSummary[];
   total: number;
   page: number;
   pageSize: number;
-} {
+}> {
   const { query, journalId, clusterId, year, page = 1, pageSize = 25 } = filters;
-  const q = query?.trim().toLowerCase();
+  const q = query?.trim();
 
-  let matches = corpus.articles;
-  if (journalId !== undefined) matches = matches.filter((a) => a.journal_id === journalId);
-  if (clusterId !== undefined) matches = matches.filter((a) => a.cluster_id === clusterId);
-  if (year !== undefined) matches = matches.filter((a) => a.year === year);
+  const parts = [(await scope()).where];
+  if (journalId !== undefined) parts.push(sql`a.journal_id = ${journalId}`);
+  if (clusterId !== undefined) parts.push(sql`a.cluster_id = ${clusterId}`);
+  if (year !== undefined) parts.push(sql`a.year = ${year}`);
   if (q) {
-    matches = matches.filter(
-      (a) =>
-        a.title.toLowerCase().includes(q) ||
-        (a.abstract && a.abstract.toLowerCase().includes(q)) ||
-        a.authors.some((au) => au.display_name.toLowerCase().includes(q)),
-    );
+    const like = `%${q}%`;
+    parts.push(sql`(
+      a.title ilike ${like} or a.abstract ilike ${like}
+      or exists (
+        select 1 from corpus_article_author aa join corpus_author au on au.id = aa.author_id
+        where aa.article_id = a.id and au.display_name ilike ${like}))`);
   }
+  const where = all(parts);
 
-  matches = [...matches].sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
-  const total = matches.length;
-  const start = (page - 1) * pageSize;
-  const results = matches.slice(start, start + pageSize).map(toSummary);
-  return { results, total, page, pageSize };
-}
-
-export function getArticleById(id: string): ArticleDetail | null {
-  const article = articlesById.get(id);
-  if (!article) return null;
-  const journal = journalsById.get(article.journal_id);
-  const cluster = clustersById.get(article.cluster_id);
-  if (!journal || !cluster) return null;
-  const relatedArticles = article.related
-    .map((rid) => articlesById.get(rid))
-    .filter((a): a is Article => Boolean(a))
-    .map(toSummary);
-  return { ...article, journal, cluster, relatedArticles };
-}
-
-export function getCorpusStats(): { articles: number; abstractCoverage: number } {
-  const withAbstract = corpus.articles.filter((a) => a.has_full_abstract).length;
+  const rows = await sql<(ArticleRow & { total: number })[]>`
+    select ${ARTICLE_COLUMNS}, count(*) over()::int as total
+    from corpus_article a
+    where a.openalex_id is not null and ${where}
+    order by a.year desc nulls last, a.title
+    limit ${pageSize} offset ${(page - 1) * pageSize}`;
+  const authors = await authorsFor(rows.map((r) => r.openalex_id));
   return {
-    articles: corpus.articles.length,
-    abstractCoverage: withAbstract / corpus.articles.length,
+    results: rows.map((r) => toSummary(toArticle(r, authors.get(r.openalex_id) ?? []))),
+    total: rows[0]?.total ?? 0,
+    page,
+    pageSize,
   };
 }
 
-export function getYears(): number[] {
-  const years = new Set(corpus.articles.map((a) => a.year).filter((y): y is number => y != null));
-  return [...years].sort((a, b) => b - a);
+export async function getArticlesByIds(ids: string[]): Promise<Article[]> {
+  if (ids.length === 0) return [];
+  const rows = await sql<ArticleRow[]>`
+    select ${ARTICLE_COLUMNS} from corpus_article a where a.openalex_id = any(${ids})`;
+  const authors = await authorsFor(ids);
+  const byId = new Map(rows.map((r) => [r.openalex_id, r]));
+  return ids.flatMap((id) => {
+    const r = byId.get(id);
+    return r ? [toArticle(r, authors.get(id) ?? [])] : [];
+  });
+}
+
+export async function getArticleById(id: string): Promise<ArticleDetail | null> {
+  const [article] = await getArticlesByIds([id]);
+  if (!article) return null;
+  const [journals, clusters] = await Promise.all([getJournals(), sql<Cluster[]>`
+    select id, label, count from corpus_cluster where id = ${article.cluster_id}`]);
+  const journal = journals.find((j) => j.id === article.journal_id);
+  const cluster = clusters[0];
+  if (!journal || !cluster) return null;
+  const relatedArticles = (await getArticlesByIds(article.related)).map(toSummary);
+  return { ...article, journal, cluster, relatedArticles };
+}
+
+export async function getCorpusStats(): Promise<{ articles: number; abstractCoverage: number }> {
+  const [row] = await sql<{ n: number; with_abstract: number }[]>`
+    select count(*)::int as n, count(*) filter (where a.has_full_abstract)::int as with_abstract
+    from corpus_article a where ${(await scope()).where}`;
+  return {
+    articles: row?.n ?? 0,
+    abstractCoverage: row && row.n > 0 ? row.with_abstract / row.n : 0,
+  };
+}
+
+export async function getYears(): Promise<number[]> {
+  const rows = await sql<{ year: number }[]>`
+    select distinct a.year from corpus_article a
+    where a.year is not null and ${(await scope()).where} order by a.year desc`;
+  return rows.map((r) => r.year);
 }

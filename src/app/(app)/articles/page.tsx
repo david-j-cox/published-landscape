@@ -15,9 +15,7 @@ export default async function ArticlesPage({
   searchParams: Promise<SearchParams>;
 }) {
   const sp = await searchParams;
-  const journals = getJournals();
-  const clusters = getClusters();
-  const years = getYears();
+  const [journals, clusters, years] = await Promise.all([getJournals(), getClusters(), getYears()]);
 
   const journalId = sp.journal ? Number(sp.journal) : undefined;
   const clusterId = sp.cluster ? Number(sp.cluster) : undefined;
@@ -25,7 +23,7 @@ export default async function ArticlesPage({
   const page = sp.page ? Number(sp.page) : 1;
   const pageSize = 25;
 
-  const { results, total } = getArticles({
+  const { results, total } = await getArticles({
     query: sp.q,
     journalId,
     clusterId,
@@ -52,7 +50,7 @@ export default async function ArticlesPage({
     <div className="mx-auto max-w-4xl p-6">
       <h1 className="text-lg font-semibold">Articles</h1>
       <p className="mt-1 text-sm text-neutral-500">
-        {total.toLocaleString()} articles across {journals.length} journals, last 10 years.
+        {total.toLocaleString()} articles across {journals.length} journals.
       </p>
 
       <form className="mt-4 flex flex-wrap gap-2 text-sm" action="/articles">
@@ -114,7 +112,7 @@ export default async function ArticlesPage({
               {a.title}
             </Link>
             <div className="mt-0.5 text-sm text-neutral-500">
-              {a.authorsShort} &middot; {journals[a.journal_id]?.name} &middot; {a.year}
+              {a.authorsShort} &middot; {journals.find((j) => j.id === a.journal_id)?.name} &middot; {a.year}
             </div>
           </li>
         ))}
