@@ -147,12 +147,21 @@ export function TopicMap({
     const sx = (wx: number) => wx * viewRef.current.scale + viewRef.current.ox;
     const sy = (wy: number) => -wy * viewRef.current.scale + viewRef.current.oy;
 
-    const centroids = clusters.map((c) => {
-      const mem = points.filter((d) => d.cluster_id === c.id);
-      const mx = mem.reduce((s, d) => s + d.x, 0) / (mem.length || 1);
-      const my = mem.reduce((s, d) => s + d.y, 0) / (mem.length || 1);
-      return { id: c.id, x: mx, y: my };
-    });
+    // Each cluster's center and its top edge, so a label can sit above the
+    // dots rather than on them. The top is the 95th percentile of y, not the
+    // maximum: one stray point would otherwise push the label into space.
+    // Largest first, which is the order labels are placed in below.
+    const centroids = clusters
+      .map((c) => {
+        const mem = points.filter((d) => d.cluster_id === c.id);
+        const mx = mem.reduce((s, d) => s + d.x, 0) / (mem.length || 1);
+        const my = mem.reduce((s, d) => s + d.y, 0) / (mem.length || 1);
+        const ys = mem.map((d) => d.y).sort((a, b) => a - b);
+        const top = ys.length ? ys[Math.min(ys.length - 1, Math.floor(ys.length * 0.95))] : my;
+        const bottom = ys.length ? ys[Math.floor(ys.length * 0.05)] : my;
+        return { id: c.id, x: mx, y: my, top, bottom, size: mem.length };
+      })
+      .sort((a, b) => b.size - a.size);
 
     function roundRectPath(x: number, y: number, w: number, h: number, r: number) {
       ctx!.beginPath();
@@ -207,11 +216,16 @@ export function TopicMap({
       ctx!.lineJoin = "round";
       const lineHeight = 14;
 
+      // Dots grow with the zoom. A fixed radius that suited 7,000 points
+      // turned 16,000 into blobs at full extent; at two pixels the shape of
+      // each cluster shows, and zooming in brings back the size to click on.
+      const zoom = viewRef.current.scale / (fitRef.current.scale || 1);
+      const dot = Math.min(4.5, 2 * Math.sqrt(zoom));
       points.forEach((d) => {
         if (hiddenPoint(d)) return;
         const x = sx(d.x), y = sy(d.y);
         const on = d === hoveredRef.current || d === selectedRef.current;
-        const r = 4.5 * (on ? 1.8 : 1);
+        const r = dot * (on ? 1.8 : 1);
         ctx!.beginPath();
         ctx!.arc(x, y, r, 0, Math.PI * 2);
         ctx!.globalAlpha = on ? 1 : 0.3;
@@ -226,26 +240,70 @@ export function TopicMap({
         ctx!.globalAlpha = 1;
       });
 
-      // Labels draw last (on top of the dots) - otherwise a dense cluster's
-      // own dots paint right over the label and its background pill.
-      centroids.forEach((c) => {
+      // Labels draw last (on top of the dots), above their cluster rather
+      // than across it, with a short leader down to the dots. Largest
+      // cluster first, and a label that would overlap one already placed is
+      // skipped at this zoom: forty-four labels at full extent covered the
+      // map they were naming. Zooming in spreads the clusters out and the
+      // skipped labels appear. The cluster under the cursor goes first, so
+      // its name is never the one that lost the draw.
+      const focus = hoveredRef.current?.cluster_id ?? selectedRef.current?.cluster_id;
+      const placed: { x: number; y: number; w: number; h: number }[] = [];
+      const collides = (b: { x: number; y: number; w: number; h: number }) =>
+        placed.some(
+          (p) => !(b.x + b.w < p.x || p.x + p.w < b.x || b.y + b.h < p.y || p.y + p.h < b.y),
+        );
+      const ordered =
+        focus === undefined
+          ? centroids
+          : [...centroids.filter((c) => c.id === focus), ...centroids.filter((c) => c.id !== focus)];
+      ordered.forEach((c) => {
         if (hiddenRef.current.has(c.id)) return;
         const cl = clusters.find((k) => k.id === c.id);
         if (!cl) return;
         const lines = wrapLabel(cl.label, 20);
-        const cx = sx(c.x), cy = sy(c.y);
+        const cx = sx(c.x);
         const maxWidth = Math.max(...lines.map((ln) => ctx!.measureText(ln).width));
         const boxW = maxWidth + 12;
         const boxH = lines.length * lineHeight + 8;
+        // Above the cluster, or below it if above is taken. The leader runs
+        // from the box to the edge of the dots on whichever side it landed.
+        const candidates = [
+          { edge: sy(c.top) - 6, dir: -1, dots: sy(c.top) + 4 },
+          { edge: sy(c.bottom) + 6, dir: 1, dots: sy(c.bottom) - 4 },
+        ];
+        let box: { x: number; y: number; w: number; h: number } | null = null;
+        let cy = 0;
+        let leader: { from: number; to: number } | null = null;
+        for (const cand of candidates) {
+          const center = cand.edge + (cand.dir * boxH) / 2;
+          const attempt = { x: cx - boxW / 2, y: center - boxH / 2, w: boxW, h: boxH };
+          if (collides(attempt)) continue;
+          box = attempt;
+          cy = center;
+          leader = { from: cand.edge, to: cand.dots };
+          break;
+        }
+        if (!box || !leader) return;
+        placed.push(box);
+        const ink =
+          colorModeRef.current === "journal" ? (isDark ? "#d4d4d4" : "#404040") : colorOf(c.id);
+        ctx!.strokeStyle = ink;
+        ctx!.globalAlpha = 0.6;
+        ctx!.lineWidth = 1;
+        ctx!.beginPath();
+        ctx!.moveTo(cx, leader.from);
+        ctx!.lineTo(cx, leader.to);
+        ctx!.stroke();
+        ctx!.globalAlpha = 1;
         ctx!.fillStyle = bgPill;
-        roundRectPath(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 5);
+        roundRectPath(box.x, box.y, boxW, boxH, 5);
         ctx!.fill();
         // In journal mode topic colors no longer mean anything, so labels
         // fall back to neutral ink instead of the cluster hue.
-        ctx!.fillStyle =
-          colorModeRef.current === "journal" ? (isDark ? "#d4d4d4" : "#404040") : colorOf(c.id);
+        ctx!.fillStyle = ink;
         lines.forEach((ln, j) =>
-          ctx!.fillText(ln, cx, cy + j * lineHeight - (lines.length - 1) * (lineHeight / 2)),
+          ctx!.fillText(ln, cx, cy + 4 + j * lineHeight - (lines.length - 1) * (lineHeight / 2)),
         );
       });
 
