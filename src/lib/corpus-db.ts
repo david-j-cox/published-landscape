@@ -14,8 +14,9 @@ import postgres from "postgres";
  *
  * CORPUS_DATABASE_URL is that role's pooled Neon connection string. The two
  * optional scope variables narrow what this app shows without touching what
- * is stored: CORPUS_YEARS_BACK keeps the last N years, and CORPUS_JOURNALS is
- * a comma-separated list of ISSN-Ls. Unset, everything in the corpus is in.
+ * is stored: CORPUS_YEARS_BACK keeps the last N years (ten by default), and
+ * CORPUS_JOURNALS is a comma-separated list of ISSN-Ls (the behavior-analytic
+ * journals by default, see DEFAULT_JOURNALS). "all" on either shows the lot.
  */
 const url = process.env.CORPUS_DATABASE_URL;
 
@@ -109,17 +110,45 @@ export function yearFloor(): number | null {
   return new Date().getUTCFullYear() - Math.floor(back) + 1;
 }
 
+/**
+ * The behavior-analytic journals, by ISSN-L.
+ *
+ * The shared corpus also holds seven journals the Writer's Trellis added for
+ * the school-based and autism work that reviews draw on: JADD, Research in
+ * Developmental Disabilities, JPBI, Focus on Autism, AJIDD, AAC, and
+ * Research in Autism. They belong in a review's search and not in an
+ * editor's reviewer pool, so this app shows the field's own journals unless
+ * CORPUS_JOURNALS says otherwise ("all" for everything in the corpus).
+ */
+const DEFAULT_JOURNALS = [
+  "0021-8855", // Journal of Applied Behavior Analysis
+  "1998-1929", // Behavior Analysis in Practice
+  "1072-0847", // Behavioral Interventions
+  "0022-5002", // Journal of the Experimental Analysis of Behavior
+  "2520-8969", // Perspectives on Behavior Science
+  "0889-9401", // The Analysis of Verbal Behavior
+  "0033-2933", // The Psychological Record
+  "2372-9414", // Behavior Analysis: Research and Practice
+  "1064-9506", // Behavior and Social Issues
+  "0748-8491", // Education and Treatment of Children
+  "0376-6357", // Behavioural Processes
+  "1053-0819", // Journal of Behavioral Education
+  "0145-4455", // Behavior Modification
+  "1543-4494", // Learning & Behavior
+  "2329-8456", // Journal of Experimental Psychology: Animal Learning and Cognition
+];
+
 let journalScope: Promise<number[] | null> | null = null;
 
 /** The journal ids in scope, resolved from the ISSN-L list once per process. */
 export function journalIds(): Promise<number[] | null> {
   if (journalScope) return journalScope;
   journalScope = (async () => {
-    const wanted = (process.env.CORPUS_JOURNALS ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (wanted.length === 0) return null;
+    const raw = (process.env.CORPUS_JOURNALS ?? "").trim();
+    if (raw.toLowerCase() === "all") return null;
+    const wanted = raw
+      ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+      : DEFAULT_JOURNALS;
     const rows = await sql<{ id: number }[]>`
       select id from corpus_journal where issn_l = any(${wanted})`;
     return rows.map((r) => r.id);

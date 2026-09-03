@@ -1,5 +1,5 @@
 import "server-only";
-import { all, scope, sql } from "@/lib/corpus-db";
+import { all, journalIds, scope, sql } from "@/lib/corpus-db";
 import type {
   Article,
   ArticleAuthor,
@@ -117,10 +117,13 @@ const articleColumns = () => sql`
   a.openalex_id, a.journal_id, a.title, a.abstract, a.has_full_abstract, a.keywords,
   a.year, a.publication_date, a.doi, a.type, a.map_x, a.map_y, a.cluster_id, a.related`;
 
+/** The journals in scope: the ones the filters, legend and map can show. */
 export async function getJournals(): Promise<Journal[]> {
+  const ids = await journalIds();
   const rows = await sql<
     { id: number; name: string; issn_l: string | null; openalex_source_id: string | null }[]
-  >`select id, name, issn_l, openalex_source_id from corpus_journal order by id`;
+  >`select id, name, issn_l, openalex_source_id from corpus_journal
+    where ${ids ? sql`id = any(${ids})` : sql`true`} order by id`;
   return rows.map((r) => ({
     id: r.id,
     name: r.name,

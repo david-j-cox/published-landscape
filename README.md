@@ -24,9 +24,11 @@ The app connects as `corpus_reader`, a role that can `SELECT` from the six
 `thesis-scaffold/scripts/create-corpus-reader.sql`). Set `CORPUS_DATABASE_URL`
 to that role's pooled Neon connection string. Two optional variables narrow
 what is shown without changing what is stored: `CORPUS_YEARS_BACK` keeps the
-last N years (default 10, the window this app always had; `all` for the whole
-corpus) and `CORPUS_JOURNALS` is a comma-separated list of ISSN-Ls (unset
-means every journal).
+last N years (default 10, the window this app always had) and
+`CORPUS_JOURNALS` is a comma-separated list of ISSN-Ls (default: the
+behavior-analytic journals listed in `src/lib/corpus-db.ts`, which leaves out
+the seven developmental-disability and autism journals the Trellis corpus
+carries for review searches). `all` on either shows everything in the corpus.
 
 `src/lib/data.ts` and `src/lib/placement.ts` are the only files that query it.
 Placement projects a manuscript with the model row in `corpus_model` and asks
