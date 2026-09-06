@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CitationHistory, CitationHistoryAxis } from "@/components/citation-history";
+import { citationsFor } from "@/lib/citations";
 import { getArticleById } from "@/lib/data";
 
 export default async function ArticleDetailPage({
@@ -10,6 +12,7 @@ export default async function ArticleDetailPage({
   const { id } = await params;
   const article = await getArticleById(id);
   if (!article) notFound();
+  const citations = await citationsFor(article.id);
 
   return (
     <div className="mx-auto max-w-2xl p-6">
@@ -56,6 +59,56 @@ export default async function ArticleDetailPage({
         </Link>
       </div>
 
+      {citations && citations.citedByCount > 0 && (
+        <section className="mt-8 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+          <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+            Citation record
+          </div>
+
+          <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Figure label="Cited" value={citations.citedByCount.toLocaleString()} note="anywhere" />
+            {citations.citedHere !== null && (
+              <Figure
+                label="From these journals"
+                value={citations.citedHere.toLocaleString()}
+                note="inside the corpus"
+              />
+            )}
+            {citations.reach !== null && (
+              <Figure
+                label="From outside"
+                value={citations.reach.toLocaleString()}
+                note="how far it travels"
+              />
+            )}
+            <Figure
+              label="It cites"
+              value={citations.refsTotal.toLocaleString()}
+              note={`${citations.refsInCorpus.toLocaleString()} of them here`}
+            />
+          </dl>
+
+          {citations.byYear.length > 1 && (
+            <div className="mt-5">
+              <div className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
+                Citations received per year
+              </div>
+              <CitationHistory points={citations.byYear} />
+              <CitationHistoryAxis points={citations.byYear} />
+            </div>
+          )}
+
+          <p className="mt-4 text-[11px] leading-relaxed text-neutral-400">
+            Counts come from OpenAlex, refreshed weekly, and the per-year series covers
+            only the years it keeps. &ldquo;From these journals&rdquo; counts articles in
+            this corpus that cite this one, which is a reference, not a claim that the
+            work was built on: a paper cites what it used and what it read on the way.
+            Reference lists also thin out going back, so an older article is more likely
+            to be under-counted than a recent one.
+          </p>
+        </section>
+      )}
+
       {article.relatedArticles.length > 0 && (
         <div className="mt-8">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
@@ -73,6 +126,16 @@ export default async function ArticleDetailPage({
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function Figure({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div>
+      <dt className="text-[11px] uppercase tracking-wide text-neutral-400">{label}</dt>
+      <dd className="mt-0.5 text-xl font-semibold tabular-nums">{value}</dd>
+      <div className="text-[11px] text-neutral-400">{note}</div>
     </div>
   );
 }

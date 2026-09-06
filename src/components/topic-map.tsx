@@ -34,7 +34,51 @@ const JOURNAL_COLORS: Record<string, string> = {
 };
 const FALLBACK_JOURNAL_COLOR = "#ec4899"; // any future unmapped journal
 
-type ColorMode = "topic" | "journal";
+/**
+ * Reach: how often an article is cited from outside these journals.
+ *
+ * A magnitude, so one hue getting darker as it rises rather than a set of
+ * hues, and the bands are fixed counts rather than quantiles so the same
+ * color means the same thing after a refresh, and after a filter. The light
+ * ramp darkens with the value against a near-white canvas; the dark ramp
+ * brightens against a near-black one, which is the same rule and not a flip
+ * of the same swatches.
+ *
+ * The low end is deliberately the quiet one in both themes. Its contrast
+ * against the canvas is under 3:1, which is why the key below spells the
+ * bands out in numbers instead of leaving the color to carry them alone.
+ */
+const REACH_BANDS = [
+  { floor: 0, label: "none" },
+  { floor: 1, label: "1-4" },
+  { floor: 5, label: "5-19" },
+  { floor: 20, label: "20-99" },
+  { floor: 100, label: "100+" },
+] as const;
+
+const REACH_LIGHT = ["#bae6fd", "#7dd3fc", "#38bdf8", "#0369a1", "#0c4a6e"];
+const REACH_DARK = ["#0c4a6e", "#0369a1", "#0284c7", "#38bdf8", "#7dd3fc"];
+// An article the citation graph has nothing for, in either theme.
+const REACH_UNKNOWN = "#71717a";
+
+function reachBand(reach: number | null | undefined): number | null {
+  if (reach === null || reach === undefined) return null;
+  let band = 0;
+  REACH_BANDS.forEach((b, i) => {
+    if (reach >= b.floor) band = i;
+  });
+  return band;
+}
+
+function reachColorOf(reach: number | null | undefined, isDark: boolean): string {
+  const band = reachBand(reach);
+  if (band === null) return REACH_UNKNOWN;
+  return (isDark ? REACH_DARK : REACH_LIGHT)[band];
+}
+
+type ColorMode = "topic" | "journal" | "reach";
+
+const MODES = ["topic", "journal", "reach"] as const;
 
 // Sentinel id for the ephemeral "place a submission" marker (src/app/(app)/submit)
 // which isn't a real article, so it can't collide with a real OpenAlex id.
@@ -68,10 +112,13 @@ export function TopicMap({
   points,
   clusters,
   journals,
+  reachAvailable = false,
 }: {
   points: MapPoint[];
   clusters: Cluster[];
   journals: Journal[];
+  /** False when the citation graph could not be read; the mode is then absent. */
+  reachAvailable?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -111,6 +158,14 @@ export function TopicMap({
 
   const journalCounts = new Map<number, number>();
   points.forEach((p) => journalCounts.set(p.journal_id, (journalCounts.get(p.journal_id) ?? 0) + 1));
+
+  // One count per reach band, with the articles the graph knows nothing about
+  // in a slot of their own at the end.
+  const reachCounts = new Array<number>(REACH_BANDS.length + 1).fill(0);
+  points.forEach((p) => {
+    const band = reachBand(p.reach);
+    reachCounts[band === null ? REACH_BANDS.length : band] += 1;
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -231,7 +286,11 @@ export function TopicMap({
         ctx!.arc(x, y, r, 0, Math.PI * 2);
         ctx!.globalAlpha = on ? 1 : 0.3;
         ctx!.fillStyle =
-          colorModeRef.current === "journal" ? journalColorOf(d.journal_id) : colorOf(d.cluster_id);
+          colorModeRef.current === "journal"
+            ? journalColorOf(d.journal_id)
+            : colorModeRef.current === "reach"
+              ? reachColorOf(d.reach, isDark)
+              : colorOf(d.cluster_id);
         ctx!.fill();
         if (on) {
           ctx!.lineWidth = 2;
@@ -288,7 +347,7 @@ export function TopicMap({
         if (!box || !leader) return;
         placed.push(box);
         const ink =
-          colorModeRef.current === "journal" ? (isDark ? "#d4d4d4" : "#404040") : colorOf(c.id);
+          colorModeRef.current === "topic" ? colorOf(c.id) : isDark ? "#d4d4d4" : "#404040";
         ctx!.strokeStyle = ink;
         ctx!.globalAlpha = 0.6;
         ctx!.lineWidth = 1;
@@ -672,7 +731,7 @@ export function TopicMap({
           Reset view
         </button>
         <div className="mb-2 flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
-          {(["topic", "journal"] as const).map((mode) => (
+          {MODES.filter((mode) => mode !== "reach" || reachAvailable).map((mode) => (
             <button
               key={mode}
               onClick={() => switchColorMode(mode)}
@@ -682,7 +741,7 @@ export function TopicMap({
                   : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
               }`}
             >
-              {mode === "topic" ? "Topics" : "Journals"}
+              {mode === "topic" ? "Topics" : mode === "journal" ? "Journals" : "Reach"}
             </button>
           ))}
         </div>
@@ -691,7 +750,43 @@ export function TopicMap({
             <YearRangeSlider min={minYear} max={maxYear} value={yearRange} onChange={setYearRange} />
           </div>
         )}
-        {colorMode === "topic" ? (
+        {colorMode === "reach" ? (
+          <div>
+            <ul className="flex flex-col gap-1">
+              {REACH_BANDS.map((band, i) => (
+                <li key={band.floor} className="flex items-center gap-2 px-1.5 py-1">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full dark:hidden"
+                    style={{ background: REACH_LIGHT[i] }}
+                  />
+                  <span
+                    className="hidden h-2.5 w-2.5 shrink-0 rounded-full dark:block"
+                    style={{ background: REACH_DARK[i] }}
+                  />
+                  <span className="flex-1 text-neutral-700 dark:text-neutral-300">
+                    {band.label}
+                  </span>
+                  <span className="text-neutral-400">{reachCounts[i]}</span>
+                </li>
+              ))}
+              {reachCounts[REACH_BANDS.length] > 0 && (
+                <li className="flex items-center gap-2 px-1.5 py-1">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: REACH_UNKNOWN }}
+                  />
+                  <span className="flex-1 text-neutral-700 dark:text-neutral-300">not known</span>
+                  <span className="text-neutral-400">{reachCounts[REACH_BANDS.length]}</span>
+                </li>
+              )}
+            </ul>
+            <p className="mt-2 border-t border-neutral-200 pt-2 leading-relaxed text-neutral-400 dark:border-neutral-800">
+              Citations from journals outside this corpus: OpenAlex&rsquo;s lifetime count
+              less the citations from inside. Older work has had longer to be cited, so
+              this reads as reach per paper, never as quality, and never across eras.
+            </p>
+          </div>
+        ) : colorMode === "topic" ? (
           <ul className="flex max-h-[15.5rem] flex-col gap-1 overflow-y-auto">
             {clusters.map((c) => (
               <li
