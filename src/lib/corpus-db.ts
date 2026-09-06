@@ -160,6 +160,56 @@ export function journalIds(): Promise<number[] | null> {
 }
 
 /**
+ * Whether corpus_article carries the non_scholarly column.
+ *
+ * Obituaries, annual author indexes, conference notices, membership lists,
+ * editorials and reprinted quotations were searchable here, sat on the map,
+ * and counted toward how many articles cover a topic. None of them is
+ * something an editor can send to a reviewer. The Trellis pipeline marks them
+ * (corpus-pipeline/scholarly_filter.py, deferring to 600 human labels), and
+ * this app leaves them out of everything it shows.
+ *
+ * Probed rather than assumed, because the column arrives in the shared corpus
+ * on Trellis's release schedule and not this app's. Asked once per process
+ * against the catalog, so the two deployments can go out in either order and
+ * neither breaks the other. Same reasoning as iterativeScanAvailable in
+ * placement.ts.
+ */
+let scholarlyColumn: Promise<boolean> | null = null;
+
+/**
+ * The "is a paper" half of the scope, on its own.
+ *
+ * scope() narrows to a window of years and a list of journals, which is a
+ * question about what this app is showing. Whether a row is scholarly work at
+ * all is a different question, and it has to hold even where the other one
+ * does not: an article page is addressed by id and never asked what year it
+ * is from, so it needs this without the rest.
+ *
+ * Wrapped in a Scope for the reason given on that type: a fragment returned
+ * bare from an async function is adopted by the promise and run as a query.
+ * Always a usable clause, `true` where the column is not there yet.
+ */
+export async function scholarlyOnly(alias = "a"): Promise<Scope> {
+  const known = await nonScholarlyKnown();
+  return { where: known ? sql`not ${sql(alias)}.non_scholarly` : sql`true` };
+}
+
+export function nonScholarlyKnown(): Promise<boolean> {
+  if (scholarlyColumn) return scholarlyColumn;
+  scholarlyColumn = (async () => {
+    const rows = await sql<{ n: number }[]>`
+      select count(*)::int as n from information_schema.columns
+      where table_name = 'corpus_article' and column_name = 'non_scholarly'`;
+    return (rows[0]?.n ?? 0) > 0;
+  })().catch((error) => {
+    scholarlyColumn = null;
+    throw error;
+  });
+  return scholarlyColumn;
+}
+
+/**
  * The WHERE clause that keeps a query inside the configured scope. Every
  * query that returns articles goes through it, so the map, the article list,
  * the placement and the reviewer pool all agree about what the field is.
@@ -170,5 +220,6 @@ export async function scope(alias = "a"): Promise<Scope> {
   if (floor !== null) parts.push(sql`${sql(alias)}.year >= ${floor}`);
   const ids = await journalIds();
   if (ids) parts.push(sql`${sql(alias)}.journal_id = any(${ids})`);
+  parts.push((await scholarlyOnly(alias)).where);
   return { where: all(parts) };
 }

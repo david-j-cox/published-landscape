@@ -99,6 +99,13 @@ export type MapPoint = {
   year: number | null;
   title: string;
   authorsShort: string;
+  /**
+   * Citations from outside these journals: OpenAlex's lifetime count less the
+   * ones from inside the corpus. Attached by the map page, and absent when
+   * the citation graph cannot be read (see lib/citations.ts), which is what
+   * takes the Reach mode off the map rather than drawing it empty.
+   */
+  reach?: number | null;
 };
 
 export type ArticleSummary = {

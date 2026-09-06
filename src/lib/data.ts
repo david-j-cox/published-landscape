@@ -1,5 +1,5 @@
 import "server-only";
-import { all, journalIds, scope, sql } from "@/lib/corpus-db";
+import { all, journalIds, scholarlyOnly, scope, sql } from "@/lib/corpus-db";
 import type {
   Article,
   ArticleAuthor,
@@ -226,10 +226,20 @@ export async function getArticles(filters: ArticleFilters = {}): Promise<{
   };
 }
 
+/*
+ * Addressed by id, so the year window and the journal list do not apply: a
+ * link to an article from outside the current window should still open, and
+ * an out-of-scope journal is already refused by getArticleById, which cannot
+ * find a journal to show. What does apply is scholarlyOnly. An obituary is
+ * not an article whichever way a reader arrives at it, and without this the
+ * one route that skips scope() was the one that made them reachable.
+ */
 export async function getArticlesByIds(ids: string[]): Promise<Article[]> {
   if (ids.length === 0) return [];
+  const scholarly = await scholarlyOnly();
   const rows = await sql<ArticleRow[]>`
-    select ${articleColumns()} from corpus_article a where a.openalex_id = any(${ids})`;
+    select ${articleColumns()} from corpus_article a
+    where a.openalex_id = any(${ids}) and ${scholarly.where}`;
   const authors = await authorsFor(ids);
   const byId = new Map(rows.map((r) => [r.openalex_id, r]));
   return ids.flatMap((id) => {
