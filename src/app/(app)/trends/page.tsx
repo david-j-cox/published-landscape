@@ -2,6 +2,7 @@ import Link from "next/link";
 import { citationGraphAvailable, translationForTopic } from "@/lib/citations";
 import { TopicConeView } from "@/components/topic-cone-view";
 import { conePoints } from "@/lib/cone";
+import { labsForTopic } from "@/lib/labs";
 import { getClusters, getJournals } from "@/lib/data";
 
 /**
@@ -73,9 +74,10 @@ async function SelectedTopic({
   count: number;
 }) {
   const [points, hasGraph] = await Promise.all([conePoints(id), citationGraphAvailable()]);
-  const [translation, journals] = await Promise.all([
+  const [translation, journals, labs] = await Promise.all([
     hasGraph ? translationForTopic(id) : null,
     getJournals(),
+    labsForTopic(id),
   ]);
   const journalName = new Map(journals.map((j) => [j.id, j.name]));
 
@@ -110,6 +112,8 @@ async function SelectedTopic({
       <p className="mt-2 text-xs text-neutral-400">
         {count.toLocaleString()} articles in this topic.
       </p>
+
+      {labs && labs.institutions.length > 0 && <Labs labs={labs} />}
 
       {translation && <Translation translation={translation} journalName={journalName} />}
     </>
@@ -201,5 +205,41 @@ function TranslationList({
         </ul>
       )}
     </div>
+  );
+}
+
+/** Which institutions publish in this topic. */
+function Labs({ labs }: { labs: NonNullable<Awaited<ReturnType<typeof labsForTopic>>> }) {
+  return (
+    <section className="mt-10 border-t border-neutral-200 pt-8 dark:border-neutral-800">
+      <h3 className="text-lg font-semibold">Labs</h3>
+      <p className="mt-1 text-xs text-neutral-400">
+        Institutions publishing in this topic
+        {labs.withInstitution < labs.pool && (
+          <> &middot; {labs.withInstitution} of {labs.pool} articles name one</>
+        )}
+      </p>
+      <ul className="mt-4 flex flex-col gap-1.5">
+        {labs.institutions.map((lab) => (
+          <li key={lab.id} className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate">
+              {lab.name}
+              {lab.country && <span className="text-neutral-400"> ({lab.country})</span>}
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-neutral-400">
+              {lab.papers} paper{lab.papers === 1 ? "" : "s"} &middot; {lab.authors} author
+              {lab.authors === 1 ? "" : "s"}
+              {lab.firstYear && lab.lastYear && (
+                <>
+                  {" "}
+                  &middot; {lab.firstYear}
+                  {lab.lastYear !== lab.firstYear && <>&ndash;{lab.lastYear}</>}
+                </>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
