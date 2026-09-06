@@ -1,21 +1,25 @@
 import Link from "next/link";
-import { CitationHistory, CitationHistoryAxis } from "@/components/citation-history";
-import { citationGraphAvailable, topicTrends, translationForTopic } from "@/lib/citations";
-import { getJournals } from "@/lib/data";
+import { citationGraphAvailable, translationForTopic } from "@/lib/citations";
+import { TopicConeView } from "@/components/topic-cone-view";
+import { conePoints } from "@/lib/cone";
+import { getClusters, getJournals } from "@/lib/data";
 
 /**
- * How the field's topics have moved, and what the applied literature has
- * taken up from the basic.
+ * A topic with time as the third dimension.
  *
- * The map answers "what is next to what". This page answers the two
- * questions the map cannot: what has happened to a topic over the years,
- * and whether a finding in one part of the field reached another. Both are
- * read from the citation graph the Writer's Trellis corpus gained in
- * September 2026; neither was answerable while this app carried its own copy
- * of the literature.
+ * The map answers "what is near what" and cannot answer "when did this
+ * happen", which for an editor judging whether a literature is live is half
+ * the question: a topic that stopped in 2019 and one still being published
+ * are the same cloud of dots seen from above. Picking a topic here draws its
+ * articles in a cone, height being the year, so the shape of its history is
+ * the shape on screen.
  *
- * The topic is chosen by a link rather than a control, so every view has a
- * URL an editor can send to somebody.
+ * This page carried small multiples of publication and citation counts until
+ * 6 September 2026. They were accurate and nobody wanted them: a bar chart
+ * per topic says how much and not what, and the questions an editor actually
+ * arrives with -- has anyone reviewed this, what has been left out of the
+ * reviews, is this still moving -- are all questions about individual
+ * articles, which is what the cone draws.
  */
 export default async function TrendsPage({
   searchParams,
@@ -23,171 +27,94 @@ export default async function TrendsPage({
   searchParams: Promise<{ topic?: string }>;
 }) {
   const { topic } = await searchParams;
-  const [trends, hasGraph] = await Promise.all([topicTrends(), citationGraphAvailable()]);
+  const clusters = await getClusters();
   const selectedId = topic === undefined ? null : Number(topic);
   const selected =
-    selectedId !== null ? (trends.find((t) => t.clusterId === selectedId) ?? null) : null;
+    selectedId !== null ? (clusters.find((c) => c.id === selectedId) ?? null) : null;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Topics over time</h1>
-      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-        How much each topic publishes, year by year, and how often its articles are
-        cited. Pick a topic to see its two curves next to each other, and which of its
-        basic findings the applied journals have taken up.
-      </p>
-
+    <div className="mx-auto max-w-6xl px-6 py-10">
       {selected ? (
-        <SelectedTopic trend={selected} hasGraph={hasGraph} />
+        <SelectedTopic id={selected.id} label={selected.label} count={selected.count} />
       ) : (
-        <AllTopics trends={trends} />
+        <>
+          <h1 className="text-2xl font-semibold tracking-tight">Topics over time</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+            The map shows what is near what. Pick a topic to see when it happened: its
+            articles drawn as a cone with the year as height, reviews picked out, and the
+            work no review here has cited shown apart from the work that has.
+          </p>
+          <ul className="mt-8 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+            {clusters.map((c) => (
+              <li key={c.id}>
+                <Link
+                  href={`/trends?topic=${c.id}`}
+                  className="flex items-baseline justify-between gap-3 rounded-md px-2 py-1.5 -mx-2 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+                >
+                  <span className="min-w-0 truncate text-sm">{c.label}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-neutral-400">
+                    {c.count.toLocaleString()}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );
 }
 
-/**
- * Every topic at once, as small multiples.
- *
- * Forty-four topics is far past the point where one chart with a series each
- * can be read, and past the point where any set of hues can be told apart.
- * The same small chart repeated, in one ink, sorted by size, is the form that
- * survives that count: the shapes are comparable because nothing else varies.
- */
-function AllTopics({ trends }: { trends: Awaited<ReturnType<typeof topicTrends>> }) {
-  return (
-    <>
-      <div className="mt-8 grid gap-x-6 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
-        {trends.map((t) => (
-          <Link
-            key={t.clusterId}
-            href={`/trends?topic=${t.clusterId}`}
-            className="group rounded-md p-2 -m-2 hover:bg-neutral-50 dark:hover:bg-neutral-900"
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="truncate text-sm font-medium group-hover:underline">{t.label}</span>
-              <span className="shrink-0 text-xs tabular-nums text-neutral-400">
-                {t.total.toLocaleString()}
-              </span>
-            </div>
-            <div className="mt-1.5">
-              <CitationHistory
-                points={t.byYear.map((y) => ({ year: y.year, count: y.articles }))}
-                height={40}
-                unit="article"
-              />
-              <CitationHistoryAxis
-                points={t.byYear.map((y) => ({ year: y.year, count: y.articles }))}
-                peakLabel={false}
-              />
-            </div>
-          </Link>
-        ))}
-      </div>
-      <p className="mt-8 text-xs leading-relaxed text-neutral-400">
-        Articles published per year, one chart per topic, all on their own scale: the
-        number beside each label is the total, and the shapes show the shape of a topic&rsquo;s
-        history, not its size against another&rsquo;s.
-      </p>
-    </>
-  );
-}
-
 async function SelectedTopic({
-  trend,
-  hasGraph,
+  id,
+  label,
+  count,
 }: {
-  trend: Awaited<ReturnType<typeof topicTrends>>[number];
-  hasGraph: boolean;
+  id: number;
+  label: string;
+  count: number;
 }) {
+  const [points, hasGraph] = await Promise.all([conePoints(id), citationGraphAvailable()]);
   const [translation, journals] = await Promise.all([
-    hasGraph ? translationForTopic(trend.clusterId) : null,
+    hasGraph ? translationForTopic(id) : null,
     getJournals(),
   ]);
   const journalName = new Map(journals.map((j) => [j.id, j.name]));
 
-  const published = trend.byYear.map((y) => ({ year: y.year, count: y.articles }));
   /*
-   * cited_by_year is roughly the last decade, so the citation series is
-   * shorter than the publication one. Drawn over its own years and labelled
-   * with them, rather than padded with zeros across the earlier years: a zero
-   * would say "not cited" where the truth is "not recorded".
+   * Mapped to the cone's own short keys here rather than in the browser.
+   * Every one of these crosses the wire in the flight payload, and at a
+   * thousand articles the long names cost more than the coordinates do.
+   * Absent rather than zero for the citation count, which is zero for most.
    */
-  const citedYears = trend.byYear.filter((y) => y.citations > 0);
-  const cited =
-    citedYears.length > 1
-      ? trend.byYear
-          .filter((y) => y.year >= citedYears[0].year && y.year <= citedYears[citedYears.length - 1].year)
-          .map((y) => ({ year: y.year, count: y.citations }))
-      : [];
+  const conePayload = points.map((p) => ({
+    x: p.x,
+    y: p.y,
+    y0: p.year,
+    t: p.title,
+    r: p.isReview ? 1 : 0,
+    d: p.doi,
+    ...(p.reviewedBy > 0 ? { n: p.reviewedBy } : {}),
+  }));
 
   return (
     <>
-      <div className="mt-6 flex items-baseline gap-3">
-        <Link href="/trends" className="text-sm text-neutral-500 hover:underline">
-          &larr; All topics
-        </Link>
-      </div>
-      <h2 className="mt-3 text-xl font-semibold">{trend.label}</h2>
-      <div className="mt-1 text-sm text-neutral-500">
-        {trend.total.toLocaleString()} articles in view
-      </div>
-
-      <div className="mt-6 grid gap-8 lg:grid-cols-2">
-        <figure>
-          <figcaption className="text-sm font-medium">Articles published per year</figcaption>
-          <div className="mt-2">
-            <CitationHistory points={published} height={110} unit="article" />
-            <CitationHistoryAxis points={published} />
-          </div>
-        </figure>
-
-        {cited.length > 1 ? (
-          <figure>
-            <figcaption className="text-sm font-medium">Citations received per year</figcaption>
-            <div className="mt-2">
-              <CitationHistory points={cited} height={110} />
-              <CitationHistoryAxis points={cited} />
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
-              Citations to this topic&rsquo;s articles from anywhere, in the years OpenAlex keeps
-              them. It covers a shorter span than the chart beside it, which is why the two
-              are drawn separately rather than on one pair of axes.
-            </p>
-          </figure>
+      <Link href="/trends" className="text-sm text-neutral-500 hover:underline">
+        &larr; All topics
+      </Link>
+      <div className="mt-4">
+        {conePayload.length > 0 ? (
+          <TopicConeView points={conePayload} label={label} backHref="/trends" />
         ) : (
-          <figure>
-            <figcaption className="text-sm font-medium">Citations received per year</figcaption>
-            <p className="mt-2 text-sm text-neutral-500">
-              No per-year citation counts are recorded for this topic.
-            </p>
-          </figure>
+          <p className="text-sm text-neutral-500">
+            Nothing in this topic carries both a position and a year, so there is no shape
+            to draw.
+          </p>
         )}
       </div>
-
-      <details className="mt-6 text-sm">
-        <summary className="cursor-pointer text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
-          The numbers behind these charts
-        </summary>
-        <table className="mt-3 w-full max-w-md text-left tabular-nums">
-          <thead className="text-xs uppercase tracking-wide text-neutral-400">
-            <tr>
-              <th className="py-1 font-medium">Year</th>
-              <th className="py-1 font-medium">Articles</th>
-              <th className="py-1 font-medium">Citations</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...trend.byYear].reverse().map((y) => (
-              <tr key={y.year} className="border-t border-neutral-100 dark:border-neutral-800">
-                <td className="py-1">{y.year}</td>
-                <td className="py-1">{y.articles.toLocaleString()}</td>
-                <td className="py-1">{y.citations ? y.citations.toLocaleString() : "-"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
+      <p className="mt-2 text-xs text-neutral-400">
+        {count.toLocaleString()} articles in this topic.
+      </p>
 
       {translation && <Translation translation={translation} journalName={journalName} />}
     </>
