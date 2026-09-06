@@ -92,10 +92,31 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, abstract, references, ...filters }),
+        // A placement is a second or two. Without a deadline a request that
+        // never comes back leaves the button reading "Finding..." forever,
+        // which is what a stuck connection looked like from here on
+        // 2026-09-06: five minutes of nothing, and no way to tell it from
+        // slow. Ninety seconds is far past the honest worst case.
+        signal: AbortSignal.timeout(90_000),
       });
+      /*
+       * Read the response before trusting it to be ours. The login gate
+       * redirects an expired session to /login, fetch follows it, and what
+       * comes back is the sign-in page: HTML, with a 200. Calling res.json()
+       * on that throws into the catch below, which reported "something went
+       * wrong contacting the server" for a session that had simply run out.
+       */
+      if (!res.headers.get("content-type")?.includes("application/json")) {
+        setError(
+          res.redirected
+            ? "Your session has expired. Reload the page and sign in again."
+            : `The server returned ${res.status} without a result. Try again in a moment.`,
+        );
+        return;
+      }
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Something went wrong.");
+        setError(data.error || `Something went wrong (${res.status}).`);
         return;
       }
       setResult(data);
@@ -109,8 +130,14 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
         JSON.stringify({ title, abstract, references, result: data }),
       );
       return data as PlacementResult;
-    } catch {
-      setError("Something went wrong contacting the server.");
+    } catch (err) {
+      // Name the two failures apart: a deadline that passed is not the same
+      // as a request that never left.
+      setError(
+        err instanceof DOMException && err.name === "TimeoutError"
+          ? "The server did not answer within 90 seconds. It may still be working - wait a moment and try again."
+          : "Could not reach the server. Check your connection and try again.",
+      );
     } finally {
       setSubmitting(false);
     }
