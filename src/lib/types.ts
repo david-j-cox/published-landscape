@@ -134,6 +134,25 @@ export type PlacementNeighbor = {
   authors: ArticleAuthor[];
 };
 
+/** Where a paper was written, from OpenAlex's institution record. */
+export type Institution = { id: string; name: string; country: string | null };
+
+export type Lab = Institution & {
+  /** Articles in this neighbourhood carrying the institution. */
+  papers: number;
+  /** Distinct people at it who wrote them. */
+  authors: number;
+  firstYear: number | null;
+  lastYear: number | null;
+};
+
+export type Labs = {
+  institutions: Lab[];
+  /** How many of the articles asked about name any institution at all. */
+  withInstitution: number;
+  pool: number;
+};
+
 // A candidate reviewer surfaced by /submit: someone who co-authored one or
 // more of the nearest existing articles to a placed submission, ranked by
 // the summed similarity of those articles (not just raw article count).
@@ -143,6 +162,13 @@ export type CandidateReviewer = {
   orcid: string | null;
   score: number;
   papers: { id: string; title: string; year: number | null; doi: string | null; similarity: number }[];
+  /**
+   * Where they wrote the papers that put them on this list. Empty when the
+   * corpus carries no institution for them, and when the institution tables
+   * are not readable at all -- an editor should read an empty affiliation as
+   * "not recorded", never as "none".
+   */
+  institutions: Institution[];
 };
 
 // Stashed in sessionStorage by /submit's "View on topic map" so the map can
