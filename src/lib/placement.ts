@@ -266,6 +266,17 @@ export async function placeArticle(
   // A wider pool feeds the reviewer suggestions (more candidate authors to
   // rank), while the displayed "nearest articles" and cluster/xy placement
   // stay tighter, to the closest matches only.
+  /*
+   * Asked BEFORE the transaction opens, never inside it. In production the
+   * pool is one connection (see corpus-db.ts), sql.begin holds it for the
+   * duration, and iterativeScanAvailable queries the outer pool -- so asking
+   * it here waited for a connection the transaction itself was holding. The
+   * request hung until the connection died about five minutes later and came
+   * back as CONNECTION_CLOSED. It never showed in development, where the pool
+   * has five connections and one is always spare.
+   */
+  const iterativeScan = await iterativeScanAvailable();
+
   const [pool, filteredNeighbors, scanned] = await sql.begin(async (tx) => {
     await tx`set local hnsw.ef_search = ${sql.unsafe(String(Math.max(CITATION_SCAN, reviewerPoolSize)))}`;
     /*
@@ -275,7 +286,7 @@ export async function placeArticle(
      * and the reference check came back with forty-four. Iterative scanning,
      * from pgvector 0.8, keeps walking the index until the LIMIT is met.
      */
-    if (await iterativeScanAvailable()) {
+    if (iterativeScan) {
       await tx`set local hnsw.iterative_scan = relaxed_order`;
     }
     const p = await nearest(tx as unknown as typeof sql, inScope, reviewerPoolSize);
