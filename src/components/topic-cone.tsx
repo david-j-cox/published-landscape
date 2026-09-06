@@ -26,14 +26,11 @@ function gathered(p: Point): boolean {
 /**
  * How far above the cone the camera sits.
  *
- * Read out of the database after David set it himself with "Save this angle",
- * so the shipped default and the stored one agree and a fresh install opens
- * the way he chose. Negative: the camera sits a little *below* the mouth,
- * looking up into the funnel. Four rounds of inferring this from screenshots
- * never once got the sign right, which is the argument for the button.
- *
- * Only where the view starts for anyone who has not set their own; see
- * VIEW_KEY.
+ * Negative: the camera sits a little *below* the mouth, looking up into the
+ * funnel. Chosen by hand in the Trellis view rather than inferred from
+ * screenshots, which never once got the sign right -- two screenshots of the
+ * same topic differ by zoom and by wherever the spin had reached as well as
+ * by the angle.
  */
 const START_PITCH = -0.316;
 
@@ -41,7 +38,7 @@ const START_PITCH = -0.316;
  * Where the same fit put the turn.
  *
  * It matters less than the pitch, since the view turns on its own and this is
- * only the first frame, but it is what keeps the decade labels clear of the
+ * only the first frame, but it is what keeps the year labels clear of the
  * article cloud: they are drawn at (0, r), which projects to -r*sin(yaw), so
  * at yaw zero and at half a turn the whole column of years lands down the
  * middle of the cloud.
@@ -79,9 +76,9 @@ function place(x: number, y: number, w: number, tip: number) {
  * One topic, with time as the third dimension.
  *
  * The flat map answers "what is near what". It cannot answer "when did this
- * happen", and for a student deciding whether a topic is worth reviewing that
- * is half the question -- a literature that stopped in 2004 and one still
- * being published are the same dot cloud from above.
+ * happen", and for an editor judging whether a literature is live that is
+ * half the question -- a topic that stopped years ago and one still being
+ * published are the same dot cloud from above.
  *
  * The projection is ported from the historyBehaviorAnalysis landscape: model
  * space is x and y from the topic layout with z one unit per year, rotated by
@@ -268,7 +265,7 @@ export default function TopicCone({
     let maxU = 1e-6;
     let maxV = 1e-6;
     for (let year = minYear; year <= maxYear; year += Math.max(1, span / 12)) {
-      // 1.06 so the decade labels, drawn just outside the rim, stay inside.
+      // 1.06 so the year labels, drawn just outside the rim, stay inside.
       const rr = radiusAt(year) * 1.06;
       const mz = (year - midYear) * zScale;
       for (let k = 0; k < 32; k++) {
@@ -291,15 +288,26 @@ export default function TopicCone({
      *
      * A ring is only its own edge, so from a shallow angle it reads as two
      * arcs floating in the cloud and the eye cannot tell which articles are
-     * above a decade and which below. A translucent plane is a surface the
+     * above a given year and which below. A translucent plane is a surface the
      * points visibly sit on or under, which is the whole question being asked
      * of the vertical axis.
      */
     ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
     ctx.textAlign = "center";
-    for (let decade = Math.ceil(minYear / 10) * 10; decade <= maxYear; decade += 10) {
-      const mz = (decade - midYear) * zScale;
-      const rr = radiusAt(decade);
+    /*
+     * Every five years rather than every ten. Over the window this app
+     * shows, a
+     * ten-year step draws exactly one plane, which gives the eye a single
+     * height to read everything against and no sense of the scale between.
+     */
+    const YEAR_STEP = 5;
+    for (
+      let mark = Math.ceil(minYear / YEAR_STEP) * YEAR_STEP;
+      mark <= maxYear;
+      mark += YEAR_STEP
+    ) {
+      const mz = (mark - midYear) * zScale;
+      const rr = radiusAt(mark);
       const rim: { sx: number; sy: number }[] = [];
       for (let k = 0; k <= 64; k++) {
         const a = (k / 64) * Math.PI * 2;
@@ -318,11 +326,11 @@ export default function TopicCone({
 
       const lab = project(0, rr * 1.04, mz);
       ctx.fillStyle = yearInk;
-      ctx.fillText(String(decade), lab.sx, lab.sy);
+      ctx.fillText(String(mark), lab.sx, lab.sy);
     }
 
     // Ribs between the rings, so the cone reads as a surface rather than as
-    // hoops floating at each decade.
+    // hoops floating at each marked year.
     ctx.strokeStyle = ribs;
     for (let k = 0; k < 12; k++) {
       const a = (k / 12) * Math.PI * 2;
@@ -381,7 +389,14 @@ export default function TopicCone({
       }
       const near = (item.depth + half) / (half * 2);
       const band = Math.min(BANDS - 1, Math.max(0, Math.round(near * (BANDS - 1))));
-      const r = Math.max(0.8, 1.6 * item.q * zoom.current);
+      /*
+       * Raised from 1.6 on 2026-09-06. Over this window a topic is a few
+       * hundred articles rather than the few thousand this was tuned against
+       * in the Trellis corpus, and the cloud read as a scatter of specks with
+       * a lot of black between them. Still well under the 4.2 a review gets,
+       * so the thing being hunted for stays the biggest mark on the screen.
+       */
+      const r = Math.max(1.2, 2.4 * item.q * zoom.current);
       const into = gathered(item.p) ? cited : bulk;
       into[band].moveTo(item.sx + r, item.sy);
       into[band].arc(item.sx, item.sy, r, 0, Math.PI * 2);

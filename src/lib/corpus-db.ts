@@ -93,14 +93,21 @@ export function all(parts: Fragment[]): Fragment {
 /**
  * The years in scope, as a lower bound on the year column, or null for all.
  *
- * Ten years unless CORPUS_YEARS_BACK says otherwise, which is the window this
- * app always showed: an editor looking for a reviewer wants who is publishing
- * now, and the map draws a circle per point, which is comfortable at sixteen
- * thousand points and not at forty-six. Setting it to 0 or "all" shows the
- * whole corpus. Computed against the current year, so the window rolls
- * forward without anyone editing an environment variable each January.
+ * Twelve years unless CORPUS_YEARS_BACK says otherwise: an editor looking for
+ * a reviewer wants who is publishing now, and the map draws a circle per
+ * point, which is comfortable at sixteen thousand points and not at
+ * forty-six. Setting it to 0 or "all" shows the whole corpus. Computed
+ * against the current year, so the window rolls forward without anyone
+ * editing an environment variable each January.
+ *
+ * Ten until 2026-09-06, when the topic cone made the cost of the shorter
+ * window visible: it marks a plane every five years, and a ten-year window
+ * drew exactly one of them, which gives the eye a single height to read
+ * everything against. Twelve reaches 2015, so a cone now carries 2015, 2020
+ * and 2025. It costs 1,353 articles, 7,681 to 9,034 measured against
+ * production, which the map absorbs without noticing.
  */
-const DEFAULT_YEARS_BACK = 10;
+const DEFAULT_YEARS_BACK = 12;
 
 export function yearFloor(): number | null {
   const raw = (process.env.CORPUS_YEARS_BACK ?? "").trim().toLowerCase();
