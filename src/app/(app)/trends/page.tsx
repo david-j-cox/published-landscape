@@ -40,9 +40,7 @@ export default async function TrendsPage({
         <>
           <h1 className="text-2xl font-semibold tracking-tight">Topics over time</h1>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-            The map shows what is near what. Pick a topic to see when it happened: its
-            articles drawn as a cone with the year as height, reviews picked out, and the
-            work no review here has cited shown apart from the work that has.
+            Click a topic to see the spread of articles over time.
           </p>
           <ul className="mt-8 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
             {clusters.map((c) => (
