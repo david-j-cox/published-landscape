@@ -780,10 +780,8 @@ export function TopicMap({
                 </li>
               )}
             </ul>
-            <p className="mt-2 border-t border-neutral-200 pt-2 leading-relaxed text-neutral-400 dark:border-neutral-800">
-              Citations from journals outside this corpus: OpenAlex&rsquo;s lifetime count
-              less the citations from inside. Older work has had longer to be cited, so
-              this reads as reach per paper, never as quality, and never across eras.
+            <p className="mt-2 border-t border-neutral-200 pt-2 text-neutral-400 dark:border-neutral-800">
+              Citations from outside these journals.
             </p>
           </div>
         ) : colorMode === "topic" ? (

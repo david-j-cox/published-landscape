@@ -1,5 +1,5 @@
 import "server-only";
-import { sql } from "@/lib/corpus-db";
+import { scope, sql } from "@/lib/corpus-db";
 import type { Institution, Lab, Labs } from "@/lib/types";
 
 /**
@@ -118,5 +118,54 @@ export async function labsNear(articleIds: string[], limit = 12): Promise<Labs |
     })),
     withInstitution: Number(coverage[0]?.n ?? 0),
     pool: articleIds.length,
+  };
+}
+
+/**
+ * The labs behind a topic, rather than behind a set of nearest articles.
+ *
+ * Same aggregation as labsNear, keyed on the cluster instead of a list of
+ * ids, so the topic page does not have to ship several hundred article ids
+ * to the server to ask a question the cluster id already answers.
+ */
+export async function labsForTopic(clusterId: number, limit = 12): Promise<Labs | null> {
+  if (!(await institutionsAvailable())) return null;
+  const inScope = (await scope()).where;
+  const [rows, coverage] = await Promise.all([
+    sql<
+      { id: string; name: string; country: string | null; papers: number; authors: number;
+        first_year: number | null; last_year: number | null }[]
+    >`
+      select i.id, i.name, i.country,
+        count(distinct a.id)::int as papers,
+        count(distinct aa.author_id)::int as authors,
+        min(a.year) as first_year, max(a.year) as last_year
+      from corpus_article a
+      join corpus_article_author aa on aa.article_id = a.id
+      join corpus_institution i on i.id = aa.institution_id
+      where a.cluster_id = ${clusterId} and ${inScope}
+      group by i.id, i.name, i.country
+      order by papers desc, authors desc, i.name
+      limit ${limit}`,
+    sql<{ withInstitution: number; total: number }[]>`
+      select
+        count(distinct a.id) filter (where aa.institution_id is not null)::int as "withInstitution",
+        count(distinct a.id)::int as total
+      from corpus_article a
+      left join corpus_article_author aa on aa.article_id = a.id
+      where a.cluster_id = ${clusterId} and ${inScope}`,
+  ]);
+  return {
+    institutions: rows.map((r): Lab => ({
+      id: r.id,
+      name: r.name,
+      country: r.country,
+      papers: Number(r.papers),
+      authors: Number(r.authors),
+      firstYear: r.first_year,
+      lastYear: r.last_year,
+    })),
+    withInstitution: Number(coverage[0]?.withInstitution ?? 0),
+    pool: Number(coverage[0]?.total ?? 0),
   };
 }
