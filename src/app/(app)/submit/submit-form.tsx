@@ -424,6 +424,47 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
 
           {tab === "reviewers" && (
             <>
+          {result.labs && result.labs.institutions.length > 0 && (
+            <div className="mt-8">
+              <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                Where this work is being done
+              </div>
+              <p className="mt-1 text-xs text-neutral-400">
+                The institutions behind the nearest articles, by how many of them each wrote.
+                {result.labs.withInstitution < result.labs.pool && (
+                  <>
+                    {" "}
+                    {result.labs.withInstitution} of the {result.labs.pool} nearest articles name
+                    an institution; the rest carry none in the corpus.
+                  </>
+                )}
+              </p>
+              <ul className="mt-2 flex flex-col gap-1 text-sm">
+                {result.labs.institutions.map((lab) => (
+                  <li key={lab.id} className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 truncate">
+                      {lab.name}
+                      {lab.country && (
+                        <span className="text-neutral-400"> ({lab.country})</span>
+                      )}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-neutral-400">
+                      {lab.papers} paper{lab.papers === 1 ? "" : "s"} &middot; {lab.authors}{" "}
+                      author{lab.authors === 1 ? "" : "s"}
+                      {lab.firstYear && lab.lastYear && (
+                        <>
+                          {" "}
+                          &middot; {lab.firstYear}
+                          {lab.lastYear !== lab.firstYear && <>&ndash;{lab.lastYear}</>}
+                        </>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="mt-8 text-xs font-semibold uppercase tracking-wide text-neutral-400">
             Suggested reviewers
           </div>
@@ -448,6 +489,11 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
                     </a>
                   )}
                 </div>
+                {r.institutions.length > 0 && (
+                  <div className="mt-0.5 text-xs text-neutral-500">
+                    {r.institutions.map((i) => i.name).join(" \u00b7 ")}
+                  </div>
+                )}
                 <ul className="mt-1 flex flex-col gap-0.5 text-xs text-neutral-500">
                   {r.papers.map((p) => (
                     <li key={p.id}>

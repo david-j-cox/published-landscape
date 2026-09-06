@@ -3,7 +3,8 @@ import { checkReferences } from "@/lib/references";
 import { all, scope, sql, type Fragment } from "@/lib/corpus-db";
 import { authorsFor } from "@/lib/data";
 import { EMBEDDER, embedQuery } from "@/lib/embed";
-import type { ArticleAuthor, CandidateReviewer, PlacementNeighbor } from "@/lib/types";
+import { institutionsByAuthor, labsNear } from "@/lib/labs";
+import type { ArticleAuthor, CandidateReviewer, Labs, PlacementNeighbor } from "@/lib/types";
 
 /*
  * Projects a new title/abstract into the same TF-IDF -> SVD latent space the
@@ -150,6 +151,12 @@ export type PlacementResult = {
   neighbors: PlacementNeighbor[];
   reviewers: CandidateReviewer[];
   matchedTermCount: number;
+  /**
+   * The labs behind the nearest work. Null when the corpus carries no
+   * institution tables this app can read, which is what takes the panel off
+   * the page rather than drawing it empty.
+   */
+  labs: Labs | null;
   /** Present only when a reference list was supplied. */
   citations?: {
     /** Related work in the corpus the reference list does not appear to cite. */
@@ -322,7 +329,12 @@ export async function placeArticle(
   // neighbours, and the citation scan.
   const neighborRows = filteredNeighbors ?? order;
   const ids = [...new Set([...pool, ...neighborRows, ...scanned].map((r) => r.openalex_id))];
-  const authors = await authorsFor(ids);
+  const poolIds = pool.map((r) => r.openalex_id);
+  const [authors, byAuthorInstitution, labs] = await Promise.all([
+    authorsFor(ids),
+    institutionsByAuthor(poolIds),
+    labsNear(poolIds),
+  ]);
   const authorsOf = (r: NearRow) => authors.get(r.openalex_id) ?? [];
 
   const neighbors = neighborRows.map((r) => toNeighbor(r, authorsOf(r)));
@@ -358,6 +370,7 @@ export async function placeArticle(
       orcid: e.orcid,
       score: e.score,
       papers: e.papers.sort((a, b) => b.similarity - a.similarity).slice(0, 3),
+      institutions: byAuthorInstitution.get(id) ?? [],
     }));
 
   // Return a full page of UNCITED work rather than a fixed slice of candidates:
@@ -392,6 +405,7 @@ export async function placeArticle(
     y: wsum > 0 ? wy / wsum : 0,
     neighbors,
     reviewers,
+    labs,
     citations,
     matchedTermCount,
   };

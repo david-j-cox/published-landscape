@@ -39,6 +39,32 @@ import { scope, sql } from "@/lib/corpus-db";
  */
 let graphProbe: Promise<boolean> | null = null;
 
+/**
+ * Whether corpus_article carries cited_here_count.
+ *
+ * The same number this file computes by counting corpus_citation rows, but
+ * precomputed by the weekly pipeline (Trellis migration 0072). Where it
+ * exists it replaces an aggregate over 368,947 edges with a column read, and
+ * where it does not the count is still correct, just dearer. Probed for the
+ * same reason as everything else here: the column lands on the other
+ * project's schedule.
+ */
+let citedHereProbe: Promise<boolean> | null = null;
+
+export function citedHereCounted(): Promise<boolean> {
+  if (citedHereProbe) return citedHereProbe;
+  citedHereProbe = (async () => {
+    const rows = await sql<{ n: number }[]>`
+      select count(*)::int as n from information_schema.columns
+      where table_name = 'corpus_article' and column_name = 'cited_here_count'`;
+    return (rows[0]?.n ?? 0) > 0;
+  })().catch((error) => {
+    citedHereProbe = null;
+    throw error;
+  });
+  return citedHereProbe;
+}
+
 export function citationGraphAvailable(): Promise<boolean> {
   if (graphProbe) return graphProbe;
   graphProbe = (async () => {
@@ -96,7 +122,10 @@ function reachOf(citedByCount: number, citedHere: number | null): number | null 
 
 /** The citation record of one article, by OpenAlex id. */
 export async function citationsFor(openalexId: string): Promise<CitationCounts | null> {
-  const hasGraph = await citationGraphAvailable();
+  const [hasGraph, hasColumn] = await Promise.all([
+    citationGraphAvailable(),
+    citedHereCounted(),
+  ]);
   const [row] = await sql<
     {
       year: number | null;
@@ -109,9 +138,11 @@ export async function citationsFor(openalexId: string): Promise<CitationCounts |
   >`
     select a.year, a.cited_by_count, a.cited_by_year, a.refs_total, a.refs_in_corpus,
       ${
-        hasGraph
-          ? sql`(select count(*)::int from corpus_citation c where c.cited = a.openalex_id)`
-          : sql`null::int`
+        hasColumn
+          ? sql`a.cited_here_count`
+          : hasGraph
+            ? sql`(select count(*)::int from corpus_citation c where c.cited = a.openalex_id)`
+            : sql`null::int`
       } as cited_here
     from corpus_article a
     where a.openalex_id = ${openalexId}`;
@@ -144,17 +175,27 @@ let reachCache: { at: number; byId: Map<string, Reach> } | null = null;
 const REACH_TTL_MS = 10 * 60 * 1000;
 
 export async function reachByArticle(): Promise<Map<string, Reach> | null> {
-  if (!(await citationGraphAvailable())) return null;
+  const [hasGraph, hasColumn] = await Promise.all([
+    citationGraphAvailable(),
+    citedHereCounted(),
+  ]);
+  if (!hasGraph && !hasColumn) return null;
   if (reachCache && Date.now() - reachCache.at < REACH_TTL_MS) return reachCache.byId;
-  const rows = await sql<{ openalex_id: string; cited_by_count: number; cited_here: number }[]>`
-    with scoped as (
-      select a.openalex_id, a.cited_by_count
-      from corpus_article a
-      where a.openalex_id is not null and ${(await scope()).where}
-    ),
-    inside as (select c.cited, count(*)::int as n from corpus_citation c group by c.cited)
-    select s.openalex_id, s.cited_by_count, coalesce(i.n, 0)::int as cited_here
-    from scoped s left join inside i on i.cited = s.openalex_id`;
+  const inScope = (await scope()).where;
+  const rows = hasColumn
+    ? await sql<{ openalex_id: string; cited_by_count: number; cited_here: number }[]>`
+        select a.openalex_id, a.cited_by_count, a.cited_here_count as cited_here
+        from corpus_article a
+        where a.openalex_id is not null and ${inScope}`
+    : await sql<{ openalex_id: string; cited_by_count: number; cited_here: number }[]>`
+        with scoped as (
+          select a.openalex_id, a.cited_by_count
+          from corpus_article a
+          where a.openalex_id is not null and ${inScope}
+        ),
+        inside as (select c.cited, count(*)::int as n from corpus_citation c group by c.cited)
+        select s.openalex_id, s.cited_by_count, coalesce(i.n, 0)::int as cited_here
+        from scoped s left join inside i on i.cited = s.openalex_id`;
   const byId = new Map<string, Reach>();
   for (const r of rows) {
     const citedByCount = Number(r.cited_by_count ?? 0);
