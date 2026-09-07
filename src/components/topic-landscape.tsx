@@ -1,5 +1,6 @@
 "use client";
 
+import { attachGestures } from "@/lib/gestures";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   REACH_DARK,
@@ -110,7 +111,7 @@ export function TopicLandscape({
   const yaw = useRef(START_YAW);
   const pitch = useRef(START_PITCH);
   const zoom = useRef(1);
-  const drag = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
+  const drag = useRef<{ yaw: number; pitch: number } | null>(null);
   const frame = useRef<number | null>(null);
   const spinRef = useRef(true);
   useEffect(() => {
@@ -504,50 +505,52 @@ export function TopicLandscape({
       }
       return best?.cone ?? null;
     };
-    const onDown = (e: MouseEvent) => {
-      drag.current = { x: e.clientX, y: e.clientY, yaw: yaw.current, pitch: pitch.current };
-      setHover(null);
-      if (spinRef.current) setSpinning(false);
-    };
-    const onUp = () => {
-      if (!drag.current) return;
-      drag.current = null;
-      schedule();
-    };
-    const onMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      if (drag.current) {
-        yaw.current = drag.current.yaw + (e.clientX - drag.current.x) * 0.008;
+    const detach = attachGestures(canvas, {
+      onPressStart: () => {
+        drag.current = { yaw: yaw.current, pitch: pitch.current };
+        setHover(null);
+        if (spinRef.current) setSpinning(false);
+      },
+      onPressEnd: () => {
+        if (!drag.current) return;
+        drag.current = null;
+        schedule();
+      },
+      onDrag: ({ totalX, totalY }) => {
+        if (!drag.current) return;
+        yaw.current = drag.current.yaw + totalX * 0.008;
         pitch.current = Math.max(
           -1.3,
-          Math.min(1.3, drag.current.pitch + (e.clientY - drag.current.y) * 0.006),
+          Math.min(1.3, drag.current.pitch + totalY * 0.006),
         );
         schedule();
-        return;
-      }
-      const c = nearest(mx, my);
-      setHover((prev) => {
-        if (!c) return prev === null ? prev : null;
-        if (prev && prev.label === c.label) return prev;
-        return { label: c.label, count: c.count, x: mx + 12, y: my + 12 };
-      });
-    };
+      },
+      onPinch: ({ factor }) => {
+        zoom.current = Math.min(8, Math.max(0.4, zoom.current * factor));
+        schedule();
+      },
+      onHover: (at) => {
+        if (!at) {
+          setHover(null);
+          return;
+        }
+        const c = nearest(at.x, at.y);
+        setHover((prev) => {
+          if (!c) return prev === null ? prev : null;
+          if (prev && prev.label === c.label) return prev;
+          return { label: c.label, count: c.count, x: at.x + 12, y: at.y + 12 };
+        });
+      },
+    });
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       zoom.current = Math.min(8, Math.max(0.4, zoom.current * (e.deltaY < 0 ? 1.1 : 0.91)));
       schedule();
     };
-    canvas.addEventListener("mousedown", onDown);
-    window.addEventListener("mouseup", onUp);
-    canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => {
-      canvas.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mouseup", onUp);
-      canvas.removeEventListener("mousemove", onMove);
+      detach();
       canvas.removeEventListener("wheel", onWheel);
       if (frame.current !== null) {
         cancelAnimationFrame(frame.current);
