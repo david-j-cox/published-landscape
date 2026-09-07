@@ -28,6 +28,13 @@ export type ConePoint = {
   isReview: boolean;
   /** Reviews in this corpus that cite it. Zero for most. */
   reviewedBy: number;
+  /**
+   * References to work outside this corpus: everything it cites, less the
+   * part that is in these journals. What a paper reached for and did not find
+   * here. Zero for the 5% with no reference list in OpenAlex, which is not
+   * the same as a paper that cites nothing.
+   */
+  refsOutside: number;
 };
 
 /**
@@ -50,9 +57,11 @@ export async function conePoints(clusterId: number): Promise<ConePoint[]> {
       doi: string | null;
       is_review: boolean;
       reviewed_by: number;
+      refs_outside: number;
     }[]
   >`
-    select a.openalex_id, a.map_x, a.map_y, a.year, a.title, a.doi, a.is_review, a.reviewed_by
+    select a.openalex_id, a.map_x, a.map_y, a.year, a.title, a.doi, a.is_review, a.reviewed_by,
+      greatest(a.refs_total - a.refs_in_corpus, 0) as refs_outside
     from corpus_article a
     where a.cluster_id = ${clusterId}
       and a.map_x is not null and a.map_y is not null and a.year is not null
@@ -67,6 +76,7 @@ export async function conePoints(clusterId: number): Promise<ConePoint[]> {
     doi: r.doi ? r.doi.replace(/^https?:\/\/doi\.org\//, "") : null,
     isReview: r.is_review,
     reviewedBy: Number(r.reviewed_by ?? 0),
+    refsOutside: Number(r.refs_outside ?? 0),
   }));
 }
 

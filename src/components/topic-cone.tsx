@@ -16,6 +16,12 @@ export interface Point {
    * what it read to write its introduction, and nothing separates the two.
    */
   n?: number;
+  /**
+   * References to work outside this corpus. Absent means none recorded, which
+   * for one article in twenty means no reference list rather than no
+   * references.
+   */
+  o?: number;
 }
 
 /** Cited by at least one review here. */
@@ -308,6 +314,9 @@ export default function TopicCone({
     const edgeInk = isDark ? "rgba(120,160,205,0.20)" : "rgba(60,95,140,0.16)";
     // The same amber the map marks a placed manuscript with.
     const focusInk = isDark ? "rgba(251,191,36,0.85)" : "rgba(180,83,9,0.85)";
+    // Deliberately not the blue the citations are drawn in: a spike points at
+    // work that is not in this corpus, so it should not read as part of the web.
+    const spikeInk = isDark ? "rgba(154,152,168,0.34)" : "rgba(96,92,112,0.30)";
     const bulkInk = isDark ? "#8b96a3" : "#6b7480";
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -376,11 +385,33 @@ export default function TopicCone({
      * foreshortens the vertical, which made choosing an angle feel like
      * choosing a size. Measuring the rim and fitting both axes fixes both.
      */
+    /*
+     * How far a spike can stand off the wall.
+     *
+     * Length is the square root of the count, not the count. Outside
+     * references are heavy-tailed -- median 22 across the corpus, maximum 359,
+     * and within one topic 24 against 223 -- so a linear scale gives one
+     * enormous quill and a field of stubble. The root pulls that 10:1 down to
+     * about 3:1, which is a difference that can still be read.
+     *
+     * Scaled against the longest spike in this topic rather than the corpus,
+     * because the question a reader has is which of THESE papers reached
+     * furthest outside, and a fixed corpus-wide scale would flatten every
+     * quiet topic to nothing.
+     */
+    const SPIKE = 0.5;
+    let mostOutside = 0;
+    if (byCitation) for (const p of all) mostOutside = Math.max(mostOutside, p.o ?? 0);
+    const spikeReach = mostOutside > 0 ? SPIKE : 0;
+    const spikeLength = (o: number) =>
+      mostOutside > 0 ? SPIKE * Math.sqrt(o / mostOutside) : 0;
+
     let maxU = 1e-6;
     let maxV = 1e-6;
     for (let year = minYear; year <= maxYear; year += Math.max(1, span / 12)) {
-      // 1.06 so the year labels, drawn just outside the rim, stay inside.
-      const rr = radiusAt(year) * 1.06;
+      // 1.06 so the year labels, drawn just outside the rim, stay inside,
+      // plus whatever the longest spike adds beyond that.
+      const rr = radiusAt(year) * 1.06 + spikeReach;
       const mz = (year - midYear) * zScale;
       for (let k = 0; k < 32; k++) {
         const a = (k / 32) * Math.PI * 2;
@@ -500,6 +531,42 @@ export default function TopicCone({
      * with the view instead of being a flat arc painted over it. Ten segments
      * is where the polygon stops being visible at this scale.
      */
+    /*
+     * A spike out of the wall for every reference that left the corpus.
+     *
+     * The cone can only ever show the citing that happened inside these
+     * journals, which is a minority of what any of these papers cite. The
+     * spikes are the rest: what the article reached for and did not find here,
+     * pointing out of the field because that is where it went. A bristling
+     * wall is a topic built on work from elsewhere; a smooth one is a
+     * literature talking mostly to itself.
+     *
+     * Radially outward in the plane of its own year, so a spike never implies
+     * a direction in time, and drawn under the citations so the web stays the
+     * thing in front.
+     */
+    if (byCitation && mostOutside > 0) {
+      const quills = new Path2D();
+      for (const i of shown) {
+        const p = laid[i];
+        const out = p.o ?? 0;
+        if (out <= 0) continue;
+        const here = model.get(i);
+        if (!here) continue;
+        const radius = Math.hypot(here.mx, here.my);
+        if (radius < 1e-9) continue;
+        const grown = (radius + spikeLength(out)) / radius;
+        const base = project(here.mx, here.my, here.mz);
+        const tip = project(here.mx * grown, here.my * grown, here.mz);
+        quills.moveTo(base.sx, base.sy);
+        quills.lineTo(tip.sx, tip.sy);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = spikeInk;
+      ctx.lineWidth = 0.9;
+      ctx.stroke(quills);
+    }
+
     /*
      * A clicked article takes the network with it.
      *
@@ -652,7 +719,7 @@ export default function TopicCone({
       review: i.p.r === 1,
       at: i.at,
     }));
-  }, [shown, laid, all, drawnEdges, picked]);
+  }, [shown, laid, all, drawnEdges, picked, byCitation]);
 
   /*
    * schedule() reaches the current draw through a ref rather than closing over
@@ -998,7 +1065,18 @@ export default function TopicCone({
           />
           {anyCited ? "not cited by one" : "everything else"}
         </span>
-        <span>Height is the year. Drag to turn, scroll to zoom, click a dot to open it.</span>
+        {byCitation && (
+          <span className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-px w-3.5"
+              style={{ background: "currentColor", opacity: 0.55 }}
+            />
+            spike length: references outside these journals
+          </span>
+        )}
+        <span>
+          Height is the year. Drag to turn, scroll to zoom, click a dot for its citations.
+        </span>
       </div>
     </div>
   );
