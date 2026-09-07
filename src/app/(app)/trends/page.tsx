@@ -96,6 +96,7 @@ async function SelectedTopic({
     r: p.isReview ? 1 : 0,
     d: p.doi,
     ...(p.reviewedBy > 0 ? { n: p.reviewedBy } : {}),
+    ...(p.refsOutside > 0 ? { o: p.refsOutside } : {}),
   }));
 
   return (
