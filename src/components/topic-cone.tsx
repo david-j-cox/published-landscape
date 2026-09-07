@@ -45,11 +45,29 @@ function wedgeLayout(points: Point[], groups: number[], groupCount: number): Poi
   const sizes = new Array<number>(lastGroup + 1).fill(0);
   for (const g of groups) sizes[Math.min(g, lastGroup)] += 1;
 
+  /*
+   * The remainder gets a fixed slice, not its share.
+   *
+   * It is the largest group by count -- every singleton is in it, and in the
+   * biggest topic that is 93 articles plus sixty-odd pairs -- and it holds
+   * almost no citations, because an article with no edge is why it is there.
+   * Sized by population it took nearly half the circle and squeezed the ten
+   * real groups into slivers, so every edge in the topic crowded into one
+   * narrow band and crossed everything else in it. A sixth of the circle is
+   * enough room to show them without giving the empty part the stage.
+   */
+  const REMAINDER_SHARE = 1 / 6;
+  const grouped = points.length - sizes[lastGroup];
+  const wedgeShare = (g: number) =>
+    g === lastGroup || grouped === 0
+      ? REMAINDER_SHARE
+      : (sizes[g] / grouped) * (1 - REMAINDER_SHARE);
+
   const starts = new Array<number>(lastGroup + 1).fill(0);
   let acc = 0;
   for (let g = 0; g <= lastGroup; g += 1) {
     starts[g] = acc;
-    acc += (sizes[g] / points.length) * Math.PI * 2;
+    acc += wedgeShare(g) * Math.PI * 2;
   }
 
   const meanX = points.reduce((s, p) => s + p.x, 0) / points.length;
@@ -58,7 +76,7 @@ function wedgeLayout(points: Point[], groups: number[], groupCount: number): Poi
 
   return points.map((p, i) => {
     const g = Math.min(groups[i] ?? lastGroup, lastGroup);
-    const width = (sizes[g] / points.length) * Math.PI * 2;
+    const width = wedgeShare(g) * Math.PI * 2;
     // A small inset at each end, so two wedges do not run into one another.
     const at = (placed[g] + 0.5) / sizes[g];
     placed[g] += 1;
