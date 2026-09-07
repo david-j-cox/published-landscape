@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { citationGraphAvailable, translationForTopic } from "@/lib/citations";
 import { TopicConeView } from "@/components/topic-cone-view";
-import { conePoints } from "@/lib/cone";
+import { coneGraph, conePoints } from "@/lib/cone";
 import { labsForTopic } from "@/lib/labs";
 import { getClusters, getJournals } from "@/lib/data";
 
@@ -74,10 +74,11 @@ async function SelectedTopic({
   count: number;
 }) {
   const [points, hasGraph] = await Promise.all([conePoints(id), citationGraphAvailable()]);
-  const [translation, journals, labs] = await Promise.all([
+  const [translation, journals, labs, graph] = await Promise.all([
     hasGraph ? translationForTopic(id) : null,
     getJournals(),
     labsForTopic(id),
+    hasGraph ? coneGraph(id, points) : null,
   ]);
   const journalName = new Map(journals.map((j) => [j.id, j.name]));
 
@@ -104,7 +105,14 @@ async function SelectedTopic({
       </Link>
       <div className="mt-4">
         {conePayload.length > 0 ? (
-          <TopicConeView points={conePayload} label={label} backHref="/trends" />
+          <TopicConeView
+            points={conePayload}
+            label={label}
+            backHref="/trends"
+            edges={graph?.edges}
+            groups={graph?.groups}
+            groupCount={graph?.groupCount ?? 0}
+          />
         ) : (
           <p className="text-sm text-neutral-500">Nothing to plot.</p>
         )}
