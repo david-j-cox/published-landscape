@@ -145,6 +145,7 @@ export function TopicLandscape({
     if (cones.length === 0) return;
 
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const wallInk = isDark ? "rgba(150,180,220,0.13)" : "rgba(70,110,160,0.16)";
     const dotInk = isDark ? "#8b96a3" : "#6b7480";
     const citedInk = isDark ? "#4d7398" : "#5a7fa6";
     const reviewInk = "#2f9bff";
@@ -228,16 +229,44 @@ export function TopicLandscape({
     };
 
     /*
-     * No wall edges.
+     * The walls: two rings and a few ribs per cone, no more.
      *
-     * A cone's radius is the distance to its furthest member, so the widest
-     * topic's outline swallowed the map -- read, correctly, as one large cone
-     * with the rest of the field inside it, which is not a relationship the
-     * data has. The article cloud already sits on the surface at its year
-     * height, so the funnel is legible without an outline drawn round it, and
-     * nothing is left to enclose anything else.
+     * Forty-four cones at the single view's detail would be fourteen thousand
+     * segments before a single article is drawn. Two rings and six ribs is
+     * enough to read a funnel at this distance, and it is what keeps the whole
+     * field inside the budget one cone used to take.
      */
+    const RING = moving ? 14 : 22;
     const visible = cones.filter((c) => !hiddenClusters.has(c.clusterId));
+    const walls = new Path2D();
+    for (const c of visible) {
+      for (const at of [0, 1]) {
+        const rr = radiusAt(c, at);
+        const mz = ((at ? maxYear : minYear) - midYear) * zScale;
+        for (let k = 0; k <= RING; k += 1) {
+          const a = (k / RING) * Math.PI * 2;
+          const x = px(c.cx + Math.cos(a) * rr, c.cy + Math.sin(a) * rr, mz);
+          const y = py(c.cx + Math.cos(a) * rr, c.cy + Math.sin(a) * rr, mz);
+          if (k === 0) walls.moveTo(x, y);
+          else walls.lineTo(x, y);
+        }
+      }
+      for (let k = 0; k < 6; k += 1) {
+        const a = (k / 6) * Math.PI * 2;
+        const lo = radiusAt(c, 0);
+        walls.moveTo(
+          px(c.cx + Math.cos(a) * lo, c.cy + Math.sin(a) * lo, (minYear - midYear) * zScale),
+          py(c.cx + Math.cos(a) * lo, c.cy + Math.sin(a) * lo, (minYear - midYear) * zScale),
+        );
+        walls.lineTo(
+          px(c.cx + Math.cos(a) * mouthRadius(c), c.cy + Math.sin(a) * mouthRadius(c), (maxYear - midYear) * zScale),
+          py(c.cx + Math.cos(a) * mouthRadius(c), c.cy + Math.sin(a) * mouthRadius(c), (maxYear - midYear) * zScale),
+        );
+      }
+    }
+    ctx.strokeStyle = wallInk;
+    ctx.lineWidth = 0.7;
+    ctx.stroke(walls);
 
     /*
      * The articles, batched by depth into a few paths, as the single cone
