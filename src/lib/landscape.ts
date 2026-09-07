@@ -29,12 +29,20 @@ export type LandscapeCone = {
 export type LandscapePoint = {
   /** Which cone it belongs to, as an index into the cones array. */
   cone: number;
-  /**
-   * Bearing from its cluster's centre, in radians, taken straight off the map.
-   * The cone keeps the map's local arrangement in its angle and spends only
-   * the radius on time, so a region of a topic stays a region.
-   */
+  /** Bearing from its cluster's centre, in radians, taken straight off the map. */
   angle: number;
+  /**
+   * How far out it sits, as a fraction of its cluster's radius on the map.
+   *
+   * With the bearing this is the article's map position, kept whole: an
+   * article at the middle of its topic sits on the cone's axis and one at the
+   * edge sits against the wall. The landscape is the map, lifted by year --
+   * so a cone is a volume with articles through it, not a shell with articles
+   * stuck to it. Pinning them to the wall is what the single topic's citation
+   * view does, and it does it because there the inside has to be free for the
+   * citation curves.
+   */
+  spread: number;
   year: number;
   isReview: boolean;
   reviewedBy: number;
@@ -106,8 +114,10 @@ export async function landscape(): Promise<Landscape> {
     for (const m of members) {
       if (m.year < minYear) minYear = m.year;
       if (m.year > maxYear) maxYear = m.year;
+      const dist = Math.hypot(m.x - cx, m.y - cy);
       points.push({
         cone,
+        spread: Math.round(Math.min(1, dist / (radius || 1)) * 1e3) / 1e3,
         /*
          * Four decimals. A radian is the whole circle over 6.28, so 0.0001 of
          * one is a ten-thousandth of a turn -- far under a pixel at any zoom

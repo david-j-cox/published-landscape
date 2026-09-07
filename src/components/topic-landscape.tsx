@@ -14,6 +14,8 @@ export type Cone = {
 export type Spot = {
   cone: number;
   angle: number;
+  /** Distance from the cone's axis, as a fraction of its radius. */
+  spread: number;
   year: number;
   isReview: boolean;
   reviewedBy: number;
@@ -207,7 +209,16 @@ export function TopicLandscape({
     for (const p of points) {
       const c = cones[p.cone];
       const t = (p.year - minYear) / span;
-      const rr = (c.radius / TAPER) * (1 + (TAPER - 1) * t);
+      /*
+       * The wall at this article's year, times how far out it sits on the map.
+       *
+       * Both halves of its map position are kept: the bearing, and the
+       * distance from the middle of its topic. So the cone is a volume with
+       * the map inside it rather than a shell with the map wrapped round it --
+       * an article at the centre of its topic is on the axis, one at the edge
+       * is against the wall, and the taper carries the year.
+       */
+      const rr = (c.radius / TAPER) * (1 + (TAPER - 1) * t) * p.spread;
       const mx = c.cx + Math.cos(p.angle) * rr;
       const my = c.cy + Math.sin(p.angle) * rr;
       const mz = (p.year - midYear) * zScale;
