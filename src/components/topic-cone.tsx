@@ -764,10 +764,7 @@ export default function TopicCone({
           />
           {anyCited ? "not cited by one" : "everything else"}
         </span>
-        <span>
-          Height is the year. Drag to turn, scroll to zoom, hover for a title,
-          click for the article.
-        </span>
+        <span>Height is the year. Drag to turn, scroll to zoom, click a dot to open it.</span>
       </div>
     </div>
   );

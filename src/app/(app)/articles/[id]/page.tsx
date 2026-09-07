@@ -98,13 +98,8 @@ export default async function ArticleDetailPage({
             </div>
           )}
 
-          <p className="mt-4 text-[11px] leading-relaxed text-neutral-400">
-            Counts come from OpenAlex, refreshed weekly, and the per-year series covers
-            only the years it keeps. &ldquo;From these journals&rdquo; counts articles in
-            this corpus that cite this one, which is a reference, not a claim that the
-            work was built on: a paper cites what it used and what it read on the way.
-            Reference lists also thin out going back, so an older article is more likely
-            to be under-counted than a recent one.
+          <p className="mt-4 text-[11px] text-neutral-400">
+            From OpenAlex, refreshed weekly.
           </p>
         </section>
       )}

@@ -457,13 +457,9 @@ export function SubmitForm({ journals, years }: { journals: Journal[]; years: nu
                 Where this work is being done
               </div>
               <p className="mt-1 text-xs text-neutral-400">
-                The institutions behind the nearest articles, by how many of them each wrote.
+                Institutions behind the nearest articles
                 {result.labs.withInstitution < result.labs.pool && (
-                  <>
-                    {" "}
-                    {result.labs.withInstitution} of the {result.labs.pool} nearest articles name
-                    an institution; the rest carry none in the corpus.
-                  </>
+                  <> &middot; {result.labs.withInstitution} of {result.labs.pool} name one</>
                 )}
               </p>
               <ul className="mt-2 flex flex-col gap-1 text-sm">

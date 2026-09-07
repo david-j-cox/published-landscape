@@ -2,6 +2,7 @@ import Link from "next/link";
 import { citationGraphAvailable, translationForTopic } from "@/lib/citations";
 import { TopicConeView } from "@/components/topic-cone-view";
 import { conePoints } from "@/lib/cone";
+import { labsForTopic } from "@/lib/labs";
 import { getClusters, getJournals } from "@/lib/data";
 
 /**
@@ -73,9 +74,10 @@ async function SelectedTopic({
   count: number;
 }) {
   const [points, hasGraph] = await Promise.all([conePoints(id), citationGraphAvailable()]);
-  const [translation, journals] = await Promise.all([
+  const [translation, journals, labs] = await Promise.all([
     hasGraph ? translationForTopic(id) : null,
     getJournals(),
+    labsForTopic(id),
   ]);
   const journalName = new Map(journals.map((j) => [j.id, j.name]));
 
@@ -104,15 +106,14 @@ async function SelectedTopic({
         {conePayload.length > 0 ? (
           <TopicConeView points={conePayload} label={label} backHref="/trends" />
         ) : (
-          <p className="text-sm text-neutral-500">
-            Nothing in this topic carries both a position and a year, so there is no shape
-            to draw.
-          </p>
+          <p className="text-sm text-neutral-500">Nothing to plot.</p>
         )}
       </div>
       <p className="mt-2 text-xs text-neutral-400">
         {count.toLocaleString()} articles in this topic.
       </p>
+
+      {labs && labs.institutions.length > 0 && <Labs labs={labs} />}
 
       {translation && <Translation translation={translation} journalName={journalName} />}
     </>
@@ -139,43 +140,31 @@ function Translation({
   return (
     <section className="mt-10 border-t border-neutral-200 pt-8 dark:border-neutral-800">
       <h3 className="text-lg font-semibold">Basic to applied</h3>
-      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-        Of this topic&rsquo;s articles, {basic.toLocaleString()} are in the basic journals and{" "}
-        {applied.toLocaleString()} in the applied ones
-        {other > 0 && <> ({other.toLocaleString()} in journals that are wholly neither)</>}. Below,
-        which of the basic ones the applied journals here cite.
+      <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+        {basic.toLocaleString()} basic, {applied.toLocaleString()} applied
+        {other > 0 && <>, {other.toLocaleString()} neither</>}.
       </p>
 
       {basic === 0 ? (
-        <p className="mt-4 text-sm text-neutral-500">
-          Nothing in this topic was published in the basic journals, so there is no crossing to
-          look at.
-        </p>
+        <p className="mt-4 text-sm text-neutral-500">No basic-journal articles here.</p>
       ) : (
         <div className="mt-6 grid gap-8 lg:grid-cols-2">
           <TranslationList
             title="Taken up"
-            note={`${bridges.length} of ${basic} basic articles here are cited by an applied one`}
+            note={`${bridges.length} of ${basic} cited by an applied article`}
             articles={bridges}
             journalName={journalName}
             showCiters
           />
           <TranslationList
             title="Not taken up"
-            note={`${gaps.length} are cited by no applied article in this corpus, most-cited first`}
+            note={`${gaps.length} not cited by one, most-cited first`}
             articles={gaps}
             journalName={journalName}
           />
         </div>
       )}
 
-      <p className="mt-6 max-w-2xl text-[11px] leading-relaxed text-neutral-400">
-        A citation is a reference, not evidence that a finding was applied, and an absence is
-        not evidence that it was ignored: OpenAlex holds reference lists for most recent work
-        and much less of the older literature, so an older basic article lands in the second
-        list more readily than a recent one. The citing side is not held to the years this app
-        shows &mdash; uptake in 2004 is still uptake &mdash; only to the applied journals.
-      </p>
     </section>
   );
 }
@@ -216,5 +205,41 @@ function TranslationList({
         </ul>
       )}
     </div>
+  );
+}
+
+/** Which institutions publish in this topic. */
+function Labs({ labs }: { labs: NonNullable<Awaited<ReturnType<typeof labsForTopic>>> }) {
+  return (
+    <section className="mt-10 border-t border-neutral-200 pt-8 dark:border-neutral-800">
+      <h3 className="text-lg font-semibold">Labs</h3>
+      <p className="mt-1 text-xs text-neutral-400">
+        Institutions publishing in this topic
+        {labs.withInstitution < labs.pool && (
+          <> &middot; {labs.withInstitution} of {labs.pool} articles name one</>
+        )}
+      </p>
+      <ul className="mt-4 flex flex-col gap-1.5">
+        {labs.institutions.map((lab) => (
+          <li key={lab.id} className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate">
+              {lab.name}
+              {lab.country && <span className="text-neutral-400"> ({lab.country})</span>}
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-neutral-400">
+              {lab.papers} paper{lab.papers === 1 ? "" : "s"} &middot; {lab.authors} author
+              {lab.authors === 1 ? "" : "s"}
+              {lab.firstYear && lab.lastYear && (
+                <>
+                  {" "}
+                  &middot; {lab.firstYear}
+                  {lab.lastYear !== lab.firstYear && <>&ndash;{lab.lastYear}</>}
+                </>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
