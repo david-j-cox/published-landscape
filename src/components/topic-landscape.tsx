@@ -18,6 +18,10 @@ export type Cone = {
   radius: number;
   count: number;
 };
+
+/** A cone's radius at its mouth, and at any year between. */
+const mouthRadius = (c: Cone) => c.radius * WIDTH;
+const radiusAt = (c: Cone, t: number) => (mouthRadius(c) / TAPER) * (1 + (TAPER - 1) * t);
 export type Spot = {
   cone: number;
   angle: number;
@@ -32,6 +36,16 @@ export type Spot = {
 
 /** Top radius over bottom, as in the single cone, so the two read alike. */
 const TAPER = 2.2;
+/*
+ * How wide a cone stands against its cluster's disc on the map.
+ *
+ * At 1 the mouth is exactly the cluster's own footprint, which is what
+ * guaranteed no two cones touched -- 946 pairs measured, the tightest
+ * separated by 1.02. At 1.5 the closest few do overlap a little, and that is
+ * the trade for cones that read as volumes rather than tubes now that the
+ * height has come down.
+ */
+const WIDTH = 1.5;
 const TURN_SECONDS = 90;
 const START_PITCH = -0.45;
 const START_YAW = 0.6;
@@ -95,7 +109,9 @@ export function TopicLandscape({
   }, [spinning]);
 
   /** Where each cone's mouth landed, for hit-testing. */
-  const mouthsRef = useRef<{ sx: number; sy: number; r: number; cone: Cone }[]>([]);
+  const mouthsRef = useRef<
+    { sx: number; sy: number; r: number; bx: number; by: number; br: number; cone: Cone }[]
+  >([]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -132,7 +148,7 @@ export function TopicLandscape({
 
     // The field's own extent, so the height reads against the width.
     let widest = 0;
-    for (const c of cones) widest = Math.max(widest, Math.hypot(c.cx, c.cy) + c.radius);
+    for (const c of cones) widest = Math.max(widest, Math.hypot(c.cx, c.cy) + mouthRadius(c));
     /*
      * How tall a cone stands.
      *
@@ -170,7 +186,7 @@ export function TopicLandscape({
     };
     for (const c of cones) {
       for (const at of [0, 1]) {
-        const rr = c.radius * (at ? 1 : 1 / TAPER);
+        const rr = radiusAt(c, at);
         const mz = ((at ? maxYear : minYear) - midYear) * zScale;
         for (let k = 0; k < 8; k += 1) {
           const a = (k / 8) * Math.PI * 2;
@@ -201,7 +217,7 @@ export function TopicLandscape({
     const walls = new Path2D();
     for (const c of visible) {
       for (const at of [0, 1]) {
-        const rr = c.radius * (at ? 1 : 1 / TAPER);
+        const rr = radiusAt(c, at);
         const mz = ((at ? maxYear : minYear) - midYear) * zScale;
         for (let k = 0; k <= RING; k += 1) {
           const a = (k / RING) * Math.PI * 2;
@@ -213,14 +229,14 @@ export function TopicLandscape({
       }
       for (let k = 0; k < 6; k += 1) {
         const a = (k / 6) * Math.PI * 2;
-        const lo = c.radius / TAPER;
+        const lo = radiusAt(c, 0);
         walls.moveTo(
           px(c.cx + Math.cos(a) * lo, c.cy + Math.sin(a) * lo, (minYear - midYear) * zScale),
           py(c.cx + Math.cos(a) * lo, c.cy + Math.sin(a) * lo, (minYear - midYear) * zScale),
         );
         walls.lineTo(
-          px(c.cx + Math.cos(a) * c.radius, c.cy + Math.sin(a) * c.radius, (maxYear - midYear) * zScale),
-          py(c.cx + Math.cos(a) * c.radius, c.cy + Math.sin(a) * c.radius, (maxYear - midYear) * zScale),
+          px(c.cx + Math.cos(a) * mouthRadius(c), c.cy + Math.sin(a) * mouthRadius(c), (maxYear - midYear) * zScale),
+          py(c.cx + Math.cos(a) * mouthRadius(c), c.cy + Math.sin(a) * mouthRadius(c), (maxYear - midYear) * zScale),
         );
       }
     }
@@ -259,7 +275,7 @@ export function TopicLandscape({
        * an article at the centre of its topic is on the axis, one at the edge
        * is against the wall, and the taper carries the year.
        */
-      const rr = (c.radius / TAPER) * (1 + (TAPER - 1) * t) * p.spread;
+      const rr = radiusAt(c, t) * p.spread;
       const mx = c.cx + Math.cos(p.angle) * rr;
       const my = c.cy + Math.sin(p.angle) * rr;
       const mz = (p.year - midYear) * zScale;
@@ -323,17 +339,38 @@ export function TopicLandscape({
      */
     const mouths = visible
       .map((c) => {
-        const mz = (maxYear - midYear) * zScale;
+        const topZ = (maxYear - midYear) * zScale;
+        const baseZ = (minYear - midYear) * zScale;
         return {
           cone: c,
-          sx: px(c.cx, c.cy, mz),
-          sy: py(c.cx, c.cy, mz),
-          r: Math.abs(px(c.cx + c.radius, c.cy, mz) - px(c.cx, c.cy, mz)),
-          depth: depthAt(c.cx, c.cy, mz),
+          sx: px(c.cx, c.cy, topZ),
+          sy: py(c.cx, c.cy, topZ),
+          r: Math.abs(px(c.cx + mouthRadius(c), c.cy, topZ) - px(c.cx, c.cy, topZ)),
+          bx: px(c.cx, c.cy, baseZ),
+          by: py(c.cx, c.cy, baseZ),
+          br: Math.abs(px(c.cx + radiusAt(c, 0), c.cy, baseZ) - px(c.cx, c.cy, baseZ)),
+          depth: depthAt(c.cx, c.cy, topZ),
         };
       })
       .sort((a, b) => a.depth - b.depth);
-    mouthsRef.current = mouths.map((m) => ({ sx: m.sx, sy: m.sy, r: m.r, cone: m.cone }));
+    /*
+     * The whole silhouette is the target, not the middle of the top disc.
+     *
+     * It was the top disc's centre within its own radius, so everything below
+     * the mouth -- the wall, the articles, most of what anyone would point at
+     * -- was not clickable at all, and a click landed on nothing. A cone is a
+     * tapered body between two centres, so the test is distance to that axis
+     * against the radius at whatever height the pointer is level with.
+     */
+    mouthsRef.current = mouths.map((m) => ({
+      sx: m.sx,
+      sy: m.sy,
+      r: m.r,
+      bx: m.bx,
+      by: m.by,
+      br: m.br,
+      cone: m.cone,
+    }));
 
     ctx.font = "600 11px ui-sans-serif, system-ui, sans-serif";
     ctx.textAlign = "center";
@@ -407,8 +444,16 @@ export function TopicLandscape({
     const nearest = (mx: number, my: number) => {
       let best: { cone: Cone; d: number } | null = null;
       for (const m of mouthsRef.current) {
-        const d = (m.sx - mx) ** 2 + (m.sy - my) ** 2;
-        if (d < Math.max(m.r, 14) ** 2 && (!best || d < best.d)) best = { cone: m.cone, d };
+        // Where along the axis the pointer sits, clamped to the two ends.
+        const ax = m.bx - m.sx;
+        const ay = m.by - m.sy;
+        const len = ax * ax + ay * ay;
+        const t = len === 0 ? 0 : Math.max(0, Math.min(1, ((mx - m.sx) * ax + (my - m.sy) * ay) / len));
+        const nx = m.sx + ax * t;
+        const ny = m.sy + ay * t;
+        const d = (nx - mx) ** 2 + (ny - my) ** 2;
+        const reach = Math.max(m.r + (m.br - m.r) * t, 10);
+        if (d < reach ** 2 && (!best || d < best.d)) best = { cone: m.cone, d };
       }
       return best?.cone ?? null;
     };
@@ -512,7 +557,7 @@ export function TopicLandscape({
       )}
       <p className="mt-1.5 text-[0.7rem] text-neutral-500 dark:text-neutral-400">
         Height is the year, so a stump is a topic that stopped and a funnel is one still
-        being published. Drag to turn, scroll to zoom, click a cone to open it.
+        being published. Drag to turn, scroll to zoom, click a cone to open its citations.
       </p>
     </div>
   );

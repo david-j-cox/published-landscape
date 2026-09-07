@@ -102,7 +102,7 @@ async function SelectedTopic({
   return (
     <>
       <Link href="/map" className="text-sm text-neutral-500 hover:underline">
-        &larr; The map
+        &larr; Back to the map
       </Link>
       <div className="mt-4">
         {conePayload.length > 0 ? (
