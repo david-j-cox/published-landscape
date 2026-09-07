@@ -1,5 +1,5 @@
 import "server-only";
-import { scope, sql } from "@/lib/corpus-db";
+import { referenceCountsKnown, reviewColumnsKnown, scope, sql } from "@/lib/corpus-db";
 
 /**
  * One topic's articles, with the year kept as a coordinate.
@@ -47,6 +47,9 @@ export type ConePoint = {
  * what the batched canvas renderer handles at sixty frames.
  */
 export async function conePoints(clusterId: number): Promise<ConePoint[]> {
+  // Probed, not assumed: both sets arrive on Trellis's release schedule, and a
+  // cone without spikes is a cone, where a cone that throws is nothing.
+  const [reviews, refs] = await Promise.all([reviewColumnsKnown(), referenceCountsKnown()]);
   const rows = await sql<
     {
       openalex_id: string;
@@ -55,13 +58,14 @@ export async function conePoints(clusterId: number): Promise<ConePoint[]> {
       year: number;
       title: string;
       doi: string | null;
-      is_review: boolean;
-      reviewed_by: number;
-      refs_outside: number;
+      is_review: boolean | null;
+      reviewed_by: number | null;
+      refs_outside: number | null;
     }[]
   >`
-    select a.openalex_id, a.map_x, a.map_y, a.year, a.title, a.doi, a.is_review, a.reviewed_by,
-      greatest(a.refs_total - a.refs_in_corpus, 0) as refs_outside
+    select a.openalex_id, a.map_x, a.map_y, a.year, a.title, a.doi,
+      ${reviews ? sql`a.is_review, a.reviewed_by,` : sql`null as is_review, 0 as reviewed_by,`}
+      ${refs ? sql`greatest(a.refs_total - a.refs_in_corpus, 0)` : sql`0`} as refs_outside
     from corpus_article a
     where a.cluster_id = ${clusterId}
       and a.map_x is not null and a.map_y is not null and a.year is not null
@@ -74,7 +78,7 @@ export async function conePoints(clusterId: number): Promise<ConePoint[]> {
     year: Number(r.year),
     title: r.title,
     doi: r.doi ? r.doi.replace(/^https?:\/\/doi\.org\//, "") : null,
-    isReview: r.is_review,
+    isReview: r.is_review ?? false,
     reviewedBy: Number(r.reviewed_by ?? 0),
     refsOutside: Number(r.refs_outside ?? 0),
   }));

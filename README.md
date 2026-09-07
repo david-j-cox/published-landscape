@@ -268,16 +268,46 @@ So the weekly refresh (`refresh-data.yml`) commits new data once a week,
 and that single push fans out to both: Vercel picks it up natively, and it
 matches `deploy-demo.yml`'s path filter to redeploy the demo too.
 
+## Preview environment
+
+Every push to `dev` builds a preview at
+`published-landscape-git-dev-david-j-coxs-projects.vercel.app`, behind Vercel's
+deployment protection, so only the project's own account can open it.
+
+Preview needs exactly one variable of its own: `CORPUS_DATABASE_URL`, scoped to
+Production, Preview and Development. It can be the same value production uses.
+This app only ever reads the corpus, through a role that can `SELECT` and
+nothing else, so a preview pointed at the same database cannot affect it - no
+branch to create and nothing to keep in sync.
+
+Everything else is deliberately left on Production alone:
+
+| variable | absent on preview |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the login gate disables itself and says so in a banner; deployment protection is what keeps the preview private |
+| `SUPABASE_SERVICE_ROLE_KEY` | `/admin` 404s, and the server log says why |
+| `NEXT_PUBLIC_SITE_URL` | `/admin` refuses to mint a sign-in link rather than sending a broken one |
+| `RESEND_API_KEY`, `EMAIL_FROM` | **on purpose.** `isEmailConfigured` is false and every send refuses, so a branch cannot mail an editor by accident |
+
+Until 7 September 2026 every variable was Production-scoped, so previews built
+green and then failed on every page that reads the corpus. Everything shipped
+that day went straight to `main` because there was nowhere else to look at it.
+
 ## Running locally
 
 ```bash
 npm install
-npm run dev
+CORPUS_DATABASE_URL=... npm run dev
 ```
 
-Works out of the box with no setup - the login gate auto-disables (with a
-visible banner) until Supabase is configured, and reads the same
-`data/corpus.json`/`data/model.json` the deployed app uses.
+The login gate auto-disables, with a visible banner, until Supabase is
+configured. The corpus is not optional: without `CORPUS_DATABASE_URL` the pages
+that read the literature will fail. It can point at the production corpus or at
+a local copy of the Trellis database.
+
+Note that `npm run dev` uses a pool of five connections and a production build
+uses one (see `src/lib/corpus-db.ts`), so some production behaviour only
+reproduces under `npm run build && npx next start`.
 
 ## Auth setup
 

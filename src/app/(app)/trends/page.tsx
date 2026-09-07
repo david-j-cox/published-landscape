@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { citationGraphAvailable, translationForTopic } from "@/lib/citations";
 import { TopicConeView } from "@/components/topic-cone-view";
 import { coneGraph, conePoints } from "@/lib/cone";
@@ -32,6 +33,14 @@ export default async function TrendsPage({
   const selectedId = topic === undefined ? null : Number(topic);
   const selected =
     selectedId !== null ? (clusters.find((c) => c.id === selectedId) ?? null) : null;
+  /*
+   * This page is what a topic opens into, not somewhere anybody navigates to.
+   * A topic is chosen on the map -- by clicking its cone or its name in the
+   * legend -- so with no topic named there is nothing to show, and the list
+   * that used to live here was a dead end reachable only by deleting the query
+   * string or by a back link that pointed at the wrong place.
+   */
+  if (!selected) redirect("/map");
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -39,9 +48,9 @@ export default async function TrendsPage({
         <SelectedTopic id={selected.id} label={selected.label} count={selected.count} />
       ) : (
         <>
-          <h1 className="text-2xl font-semibold tracking-tight">Topics over time</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Topics</h1>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-            Click a topic to see the spread of articles over time.
+            Click a topic to see how its articles cite each other.
           </p>
           <ul className="mt-8 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
             {clusters.map((c) => (
@@ -101,15 +110,15 @@ async function SelectedTopic({
 
   return (
     <>
-      <Link href="/trends" className="text-sm text-neutral-500 hover:underline">
-        &larr; All topics
+      <Link href="/map" className="text-sm text-neutral-500 hover:underline">
+        &larr; Back to the map
       </Link>
       <div className="mt-4">
         {conePayload.length > 0 ? (
           <TopicConeView
             points={conePayload}
             label={label}
-            backHref="/trends"
+            backHref="/map"
             edges={graph?.edges}
             groups={graph?.groups}
             groupCount={graph?.groupCount ?? 0}
