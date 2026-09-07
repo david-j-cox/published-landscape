@@ -1,5 +1,5 @@
 import "server-only";
-import { all, journalIds, scholarlyOnly, scope, sql } from "@/lib/corpus-db";
+import { all, journalIds, reviewColumnsKnown, scholarlyOnly, scope, sql } from "@/lib/corpus-db";
 import type {
   Article,
   ArticleAuthor,
@@ -154,13 +154,14 @@ const MAP_TTL_MS = 10 * 60 * 1000;
 
 export async function getMapPoints(): Promise<MapPoint[]> {
   if (mapCache && Date.now() - mapCache.at < MAP_TTL_MS) return mapCache.points;
+  const reviews = await reviewColumnsKnown();
   const rows = await sql<
     { openalex_id: string; map_x: number; map_y: number; cluster_id: number;
       journal_id: number; year: number | null; title: string; names: string | null;
-      is_review: boolean; reviewed_by: number }[]
+      is_review: boolean | null; reviewed_by: number | null }[]
   >`
     select a.openalex_id, a.map_x, a.map_y, a.cluster_id, a.journal_id, a.year, a.title,
-      a.is_review, a.reviewed_by,
+      ${reviews ? sql`a.is_review, a.reviewed_by,` : sql`null as is_review, 0 as reviewed_by,`}
       (select string_agg(au.display_name, '|' order by ${positionOrder()}, au.display_name)
          from corpus_article_author aa join corpus_author au on au.id = aa.author_id
         where aa.article_id = a.id) as names
@@ -176,7 +177,7 @@ export async function getMapPoints(): Promise<MapPoint[]> {
     year: r.year,
     title: r.title,
     authorsShort: authorsShortOf(r.names ? r.names.split("|") : []),
-    isReview: r.is_review,
+    isReview: r.is_review ?? false,
     reviewedBy: Number(r.reviewed_by ?? 0),
   }));
   mapCache = { at: Date.now(), points };

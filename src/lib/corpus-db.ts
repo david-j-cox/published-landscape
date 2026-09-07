@@ -202,6 +202,54 @@ export async function scholarlyOnly(alias = "a"): Promise<Scope> {
   return { where: known ? sql`not ${sql(alias)}.non_scholarly` : sql`true` };
 }
 
+/**
+ * Whether corpus_article carries a set of columns, asked once per process.
+ *
+ * information_schema.columns lists only what this role has privileges on, so
+ * one query answers both halves of the question -- the column is there, and
+ * corpus_reader is allowed to read it.
+ */
+const columnCache = new Map<string, Promise<boolean>>();
+function columnsKnown(columns: string[]): Promise<boolean> {
+  const key = columns.join(",");
+  const cached = columnCache.get(key);
+  if (cached) return cached;
+  const asked = (async () => {
+    const rows = await sql<{ n: number }[]>`
+      select count(*)::int as n from information_schema.columns
+      where table_name = 'corpus_article' and column_name = any(${columns})`;
+    return (rows[0]?.n ?? 0) === columns.length;
+  })().catch((error) => {
+    columnCache.delete(key);
+    throw error;
+  });
+  columnCache.set(key, asked);
+  return asked;
+}
+
+/**
+ * Whether a row can say that it is a review, and how many reviews cite it.
+ *
+ * Probed for the reason nonScholarlyKnown is: these arrive in the shared
+ * corpus on Trellis's release schedule, not this app's, and the map reads them
+ * for every article it draws. Unprobed, a rename on that side would take the
+ * map down with a 500 rather than costing it one distinction among dots.
+ */
+export function reviewColumnsKnown(): Promise<boolean> {
+  return columnsKnown(["is_review", "reviewed_by"]);
+}
+
+/**
+ * Whether a row can say how much it cites, in total and inside this corpus.
+ *
+ * The cone's spikes are the difference between the two. Same reasoning as
+ * reviewColumnsKnown, and separate from it because the two sets can land in
+ * either order.
+ */
+export function referenceCountsKnown(): Promise<boolean> {
+  return columnsKnown(["refs_total", "refs_in_corpus"]);
+}
+
 export function nonScholarlyKnown(): Promise<boolean> {
   if (scholarlyColumn) return scholarlyColumn;
   scholarlyColumn = (async () => {
