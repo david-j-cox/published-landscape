@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   REACH_DARK,
   REACH_LIGHT,
@@ -102,7 +101,6 @@ export function TopicLandscape({
    */
   resetRef?: { current: (() => void) | null };
 }) {
-  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [spinning, setSpinning] = useState(true);
   const [hover, setHover] = useState<{ label: string; count: number; x: number; y: number } | null>(
@@ -404,7 +402,14 @@ export function TopicLandscape({
     for (const m of [...mouths].reverse()) {
       const words = m.cone.label.split(", ").slice(0, 2).join(", ");
       const wide = ctx.measureText(words).width;
-      const y = m.sy - m.r - 6;
+      /*
+       * Clamped, because m.r is a projected radius and perspective makes it
+       * enormous for a cone close to the camera -- which is how one label
+       * ended up floating half a screen above the field with nothing under
+       * it. The label only needs to clear the rim, and past forty pixels it
+       * is no longer clearing anything, just leaving.
+       */
+      const y = m.sy - Math.min(m.r, 40) - 6;
       if (placed.some((q) => Math.abs(q.x - m.sx) < (q.w + wide) / 2 + 6 && Math.abs(q.y - y) < 13))
         continue;
       placed.push({ x: m.sx, y, w: wide });
@@ -529,11 +534,7 @@ export function TopicLandscape({
         return { label: c.label, count: c.count, x: mx + 12, y: my + 12 };
       });
     };
-    const onClick = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const c = nearest(e.clientX - rect.left, e.clientY - rect.top);
-      if (c) router.push(`/trends?topic=${c.clusterId}`);
-    };
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       zoom.current = Math.min(8, Math.max(0.4, zoom.current * (e.deltaY < 0 ? 1.1 : 0.91)));
@@ -542,20 +543,18 @@ export function TopicLandscape({
     canvas.addEventListener("mousedown", onDown);
     window.addEventListener("mouseup", onUp);
     canvas.addEventListener("mousemove", onMove);
-    canvas.addEventListener("click", onClick);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       canvas.removeEventListener("mousedown", onDown);
       window.removeEventListener("mouseup", onUp);
       canvas.removeEventListener("mousemove", onMove);
-      canvas.removeEventListener("click", onClick);
       canvas.removeEventListener("wheel", onWheel);
       if (frame.current !== null) {
         cancelAnimationFrame(frame.current);
         frame.current = null;
       }
     };
-  }, [schedule, router]);
+  }, [schedule]);
 
   return (
     <div className="relative">
@@ -594,7 +593,8 @@ export function TopicLandscape({
       )}
       <p className="mt-1.5 text-[0.7rem] text-neutral-500 dark:text-neutral-400">
         Height is the year, so a stump is a topic that stopped and a funnel is one still
-        being published. Drag to turn, scroll to zoom, click a cone to open its citations.
+        being published. Drag to turn, scroll to zoom. Pick a topic in the legend to open
+        its citations.
       </p>
     </div>
   );

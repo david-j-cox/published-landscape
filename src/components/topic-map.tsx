@@ -76,6 +76,14 @@ export function TopicMap({
    * the special case now rather than the other way round.
    */
   const [view, setView] = useState<"flat" | "field">("field");
+  /*
+   * The panel sits over the drawing, and the field fills far more of the frame
+   * than the flat map ever did -- the cones behind the panel are simply not
+   * viewable. There is nowhere on a full-bleed canvas to put it that is not
+   * over something, so it folds away instead, and the map remembers that the
+   * reader folded it.
+   */
+  const [controlsOpen, setControlsOpen] = useState(true);
   const router = useRouter();
   /** How the aside's Reset view reaches the field's camera. */
   const fieldReset = useRef<(() => void) | null>(null);
@@ -570,9 +578,15 @@ export function TopicMap({
       canvas.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
     };
-    // points/clusters are static for the page's lifetime
+    /*
+     * points/clusters are static for the page's lifetime, but the canvas is
+     * not: the field replaces it, so this has to run again each time the flat
+     * view comes back to a freshly mounted element. Running once at mount --
+     * which, now that the field is the default, meant running against no
+     * canvas at all -- left the flat view black.
+     */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [view]);
 
   // Redraw when hiddenClusters changes (legend toggles).
   useEffect(() => {
@@ -750,7 +764,25 @@ export function TopicMap({
         className="pointer-events-none absolute z-20 max-w-64 rounded-md bg-neutral-900 px-2.5 py-1.5 text-xs text-white shadow-lg"
       />
 
-      <aside className="absolute right-3 top-3 z-10 max-h-[calc(100%-24px)] w-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
+      {!controlsOpen && (
+        <button
+          onClick={() => setControlsOpen(true)}
+          className="absolute right-3 top-3 z-10 rounded-lg border border-neutral-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-neutral-600 shadow-sm hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          Controls
+        </button>
+      )}
+
+      <aside
+        hidden={!controlsOpen}
+        className="absolute right-3 top-3 z-10 max-h-[calc(100%-24px)] w-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95"
+      >
+        <button
+          onClick={() => setControlsOpen(false)}
+          className="mb-2 w-full rounded-md py-1 text-right text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+        >
+          Hide controls
+        </button>
         {pending && (
           <div className="mb-2 flex flex-col gap-1.5">
             <Link
