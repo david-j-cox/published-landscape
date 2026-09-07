@@ -195,7 +195,22 @@ export function TopicLandscape({
         }
       }
     }
-    const scale = Math.min(halfW / maxU, halfH / maxV) * 0.94 * zoom.current;
+    /*
+     * Fill the height, not just the width.
+     *
+     * The field is wide and flat now that the cones have been shortened, and
+     * the box it sits in is tall, so fitting to whichever side binds meant
+     * fitting to the width and leaving a third of the height empty above and
+     * below. The scene looked small in a large frame.
+     *
+     * Fitted to the height instead, and the width allowed to run well past the
+     * edges: at a tenth the width still bound and the field only grew by 1.17,
+     * where the ask was half again. At 1.4 it grows by about 1.5 and the
+     * outermost cone or two -- the far outliers, not the body of the field --
+     * reach past the sides at full zoom. Scrolling zooms back out.
+     */
+    const scale =
+      Math.min((halfH / maxV) * 0.98, (halfW / maxU) * 1.4) * zoom.current;
 
     const px = (mx: number, my: number, mz: number) => halfW + rawU(mx, my, mz) * scale;
     const py = (mx: number, my: number, mz: number) => halfH + rawV(mx, my, mz) * scale;

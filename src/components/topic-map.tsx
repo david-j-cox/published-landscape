@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
 import {
   FALLBACK_JOURNAL_COLOR,
@@ -71,6 +72,7 @@ export function TopicMap({
    * when it happened.
    */
   const [view, setView] = useState<"flat" | "field">("flat");
+  const router = useRouter();
 
   /*
    * The field is derived from the same points the flat map draws, not fetched
@@ -838,7 +840,21 @@ export function TopicMap({
             {clusters.map((c) => (
               <li
                 key={c.id}
-                onClick={() => toggleCluster(c.id)}
+                onClick={() =>
+                  view === "field"
+                    ? /*
+                       * In the field a topic name opens that topic.
+                       *
+                       * Hiding it there leaves one cone standing in a scene
+                       * built for forty-four, too small to turn or read, which
+                       * is not isolating a topic so much as losing it. The
+                       * topic's own page is where a single cone belongs, and
+                       * it comes back with "Back to the map". The flat map
+                       * keeps hiding, which is what it is good for.
+                       */
+                      router.push(`/trends?topic=${c.id}`)
+                    : toggleCluster(c.id)
+                }
                 className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
                   hiddenClusters.has(c.id) ? "opacity-35" : ""
                 }`}
