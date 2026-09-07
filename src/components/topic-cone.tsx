@@ -49,28 +49,24 @@ function wedgeLayout(points: Point[], groups: number[], groupCount: number): Poi
   for (const g of groups) sizes[Math.min(g, lastGroup)] += 1;
 
   /*
-   * The remainder gets a fixed slice, not its share.
+   * One article, one slice of the circle.
    *
-   * It is the largest group by count -- every singleton is in it, and in the
-   * biggest topic that is 93 articles plus sixty-odd pairs -- and it holds
-   * almost no citations, because an article with no edge is why it is there.
-   * Sized by population it took nearly half the circle and squeezed the ten
-   * real groups into slivers, so every edge in the topic crowded into one
-   * narrow band and crossed everything else in it. A sixth of the circle is
-   * enough room to show them without giving the empty part the stage.
+   * The remainder held a fixed sixth for a while, on the reasoning that it
+   * carries no citations and should not take the stage. That was the wrong
+   * cure: it holds three quarters of the articles in some topics, and packing
+   * them into sixty degrees made one dense crescent against an almost empty
+   * rim -- 5.7 articles per degree there against 0.4 in the groups, measured.
+   *
+   * Every article now gets the same arc, so the wall is evenly populated the
+   * whole way round and the cone is used rather than one face of it. Groups
+   * stay contiguous, so a line of work is still a column; it is just a column
+   * as wide as the number of papers in it.
    */
-  const REMAINDER_SHARE = 1 / 6;
-  const grouped = points.length - sizes[lastGroup];
-  const wedgeShare = (g: number) =>
-    g === lastGroup || grouped === 0
-      ? REMAINDER_SHARE
-      : (sizes[g] / grouped) * (1 - REMAINDER_SHARE);
-
   const starts = new Array<number>(lastGroup + 1).fill(0);
   let acc = 0;
   for (let g = 0; g <= lastGroup; g += 1) {
     starts[g] = acc;
-    acc += wedgeShare(g) * Math.PI * 2;
+    acc += (sizes[g] / points.length) * Math.PI * 2;
   }
 
   const placed = new Array<number>(lastGroup + 1).fill(0);
@@ -91,7 +87,7 @@ function wedgeLayout(points: Point[], groups: number[], groupCount: number): Poi
 
   return points.map((p, i) => {
     const g = Math.min(groups[i] ?? lastGroup, lastGroup);
-    const width = wedgeShare(g) * Math.PI * 2;
+    const width = (sizes[g] / points.length) * Math.PI * 2;
     // A small inset at each end, so two wedges do not run into one another.
     const at = (placed[g] + 0.5) / sizes[g];
     placed[g] += 1;
@@ -196,7 +192,7 @@ export default function TopicCone({
   const [hover, setHover] = useState<{ title: string; x: number; y: number } | null>(null);
   /** A clicked article, held until dismissed, so its link can be followed. */
   const [picked, setPicked] = useState<
-    { title: string; doi: string | null; x: number; y: number } | null
+    { title: string; doi: string | null; x: number; y: number; at: number } | null
   >(null);
   const [spinning, setSpinning] = useState(true);
   /**
@@ -283,7 +279,7 @@ export default function TopicCone({
   const anyCited = useMemo(() => points.some(gathered), [points]);
   /** Where each article landed on screen, for hit-testing the hover. */
   const projectedRef = useRef<
-    { sx: number; sy: number; title: string; doi: string | null; review: boolean }[]
+    { sx: number; sy: number; title: string; doi: string | null; review: boolean; at: number }[]
   >([]);
 
   const draw = useCallback(() => {
@@ -310,6 +306,8 @@ export default function TopicCone({
     const ribs = isDark ? "rgba(150,180,220,0.07)" : "rgba(70,110,160,0.12)";
     const yearInk = isDark ? "rgba(160,190,225,0.65)" : "rgba(60,90,130,0.75)";
     const edgeInk = isDark ? "rgba(120,160,205,0.20)" : "rgba(60,95,140,0.16)";
+    // The same amber the map marks a placed manuscript with.
+    const focusInk = isDark ? "rgba(251,191,36,0.85)" : "rgba(180,83,9,0.85)";
     const bulkInk = isDark ? "#8b96a3" : "#6b7480";
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -502,11 +500,28 @@ export default function TopicCone({
      * with the view instead of being a flat arc painted over it. Ten segments
      * is where the polygon stops being visible at this scale.
      */
-    if (drawnEdges.length > 0) {
+    /*
+     * A clicked article takes the network with it.
+     *
+     * Two thousand curves say what the topic's citing looks like in general
+     * and nothing about any one paper. Picking one drops every citation it is
+     * not an end of, so what is left is that article's own reach: what it
+     * cites, below it, and what cites it, above. Amber, because it is the
+     * same "you chose this" the map uses for a placed manuscript, and heavier,
+     * because a handful of lines on an empty cone should be read and not
+     * hunted for.
+     */
+    const focus = picked?.at ?? null;
+    const edgesToDraw =
+      focus === null
+        ? drawnEdges
+        : drawnEdges.filter(([a, b]) => a === focus || b === focus);
+
+    if (edgesToDraw.length > 0) {
       const BOW = 0.42;
       const STEPS = 10;
       const web = new Path2D();
-      for (const [from, to] of drawnEdges) {
+      for (const [from, to] of edgesToDraw) {
         const a = model.get(from);
         const b = model.get(to);
         const sa = at.get(from);
@@ -530,14 +545,18 @@ export default function TopicCone({
         }
       }
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = edgeInk;
-      ctx.lineWidth = 0.6;
+      ctx.strokeStyle = focus === null ? edgeInk : focusInk;
+      ctx.lineWidth = focus === null ? 0.6 : 1.4;
       ctx.stroke(web);
     }
 
     // Painter's algorithm: furthest first, so nearer articles overlap them.
     const projected = shown
-      .map((i) => ({ p: laid[i], ...(at.get(i) as { sx: number; sy: number; depth: number; q: number }) }))
+      .map((i) => ({
+        p: laid[i],
+        at: i,
+        ...(at.get(i) as { sx: number; sy: number; depth: number; q: number }),
+      }))
       .sort((a, b) => a.depth - b.depth);
 
     /*
@@ -631,8 +650,9 @@ export default function TopicCone({
       title: i.p.t,
       doi: i.p.d ?? null,
       review: i.p.r === 1,
+      at: i.at,
     }));
-  }, [shown, laid, all, drawnEdges]);
+  }, [shown, laid, all, drawnEdges, picked]);
 
   /*
    * schedule() reaches the current draw through a ref rather than closing over
@@ -748,14 +768,15 @@ export default function TopicCone({
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
-      let best: { title: string; doi: string | null; d: number } | null = null;
+      let best: { title: string; doi: string | null; d: number; at: number } | null = null;
       for (const p of projectedRef.current) {
         const d = (p.sx - mx) ** 2 + (p.sy - my) ** 2;
-        if (d < 40 && (!best || d < best.d)) best = { title: p.title, doi: p.doi, d };
+        if (d < 40 && (!best || d < best.d))
+          best = { title: p.title, doi: p.doi, d, at: p.at };
       }
       setPicked(
         best
-          ? { title: best.title, doi: best.doi, ...place(mx, my, rect.width, 384) }
+          ? { title: best.title, doi: best.doi, at: best.at, ...place(mx, my, rect.width, 384) }
           : null,
       );
       if (best) setSpinning(false);
