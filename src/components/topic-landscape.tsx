@@ -420,6 +420,37 @@ export function TopicLandscape({
       ctx.fillStyle = labelInk;
       ctx.fillText(words, m.sx, y);
     }
+
+    /*
+     * The two years the cones run between, at the heights they run between.
+     *
+     * The caption says height is the year, which is the rule but not the
+     * scale: without a number at each end the reader cannot tell where in the
+     * range a band of articles sits. One pair on the axis rather than a pair
+     * per cone -- forty-four cones would put eighty-eight numbers on a drawing
+     * whose whole vertical extent is one scale, all of them saying the same
+     * two things.
+     *
+     * Anchored at the model origin, which is where the fit centres the scene,
+     * so the marks stay level with the mouths and bases as the field turns.
+     * Held at a fixed inset from the left edge instead of following the
+     * projection sideways: this is an axis, and an axis that slid around the
+     * frame while the scene rotated would be harder to read than no axis.
+     */
+    ctx.textAlign = "left";
+    ctx.font = "600 11px ui-sans-serif, system-ui, sans-serif";
+    for (const [year, mz] of [
+      [maxYear, (maxYear - midYear) * zScale],
+      [minYear, (minYear - midYear) * zScale],
+    ] as const) {
+      const label = String(year);
+      const at = py(0, 0, mz);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = labelHalo;
+      ctx.strokeText(label, 12, at);
+      ctx.fillStyle = labelInk;
+      ctx.fillText(label, 12, at);
+    }
   }, [cones, points, minYear, maxYear, colorMode, hiddenClusters, hiddenJournals, yearRange, journalColor]);
 
   const drawRef = useRef(draw);
@@ -595,9 +626,8 @@ export function TopicLandscape({
         </span>
       )}
       <p className="mt-1.5 text-[0.7rem] text-neutral-500 dark:text-neutral-400">
-        Height is the year, so a stump is a topic that stopped and a funnel is one still
-        being published. Drag to turn, scroll to zoom. Pick a topic in the legend to open
-        its citations.
+        Height is the year. Drag to turn, scroll to zoom. Pick a topic in the legend to
+        open its citations.
       </p>
     </div>
   );
