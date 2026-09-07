@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  REACH_DARK,
+  REACH_LIGHT,
+  REACH_UNKNOWN,
+  reachBand,
+  type ColorMode,
+} from "@/lib/map-colors";
 
 export type Cone = {
   clusterId: number;
@@ -19,6 +26,8 @@ export type Spot = {
   year: number;
   isReview: boolean;
   reviewedBy: number;
+  journalId: number;
+  reach: number;
 };
 
 /** Top radius over bottom, as in the single cone, so the two read alike. */
@@ -51,11 +60,22 @@ export function TopicLandscape({
   points,
   minYear,
   maxYear,
+  colorMode,
+  hiddenClusters,
+  hiddenJournals,
+  yearRange,
+  journalColor,
 }: {
   cones: Cone[];
   points: Spot[];
   minYear: number;
   maxYear: number;
+  /** Shared with the flat map, so the legend means the same thing in both. */
+  colorMode: ColorMode;
+  hiddenClusters: Set<number>;
+  hiddenJournals: Set<number>;
+  yearRange: [number, number];
+  journalColor: (journalId: number) => string;
 }) {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -113,7 +133,16 @@ export function TopicLandscape({
     // The field's own extent, so the height reads against the width.
     let widest = 0;
     for (const c of cones) widest = Math.max(widest, Math.hypot(c.cx, c.cy) + c.radius);
-    const zScale = (widest * 0.55) / span;
+    /*
+     * How tall a cone stands.
+     *
+     * Was 0.55 of the field's own width over the year span, which drew tubes
+     * far taller than they were wide with a lot of empty height between the
+     * years. A quarter puts the field at something closer to a table of
+     * objects than a forest of poles, which is what a reader is looking down
+     * at from above.
+     */
+    const zScale = (widest * 0.26) / span;
 
     const cy0 = Math.cos(yaw.current);
     const sy0 = Math.sin(yaw.current);
@@ -168,8 +197,9 @@ export function TopicLandscape({
      * field inside the budget one cone used to take.
      */
     const RING = moving ? 14 : 22;
+    const visible = cones.filter((c) => !hiddenClusters.has(c.clusterId));
     const walls = new Path2D();
-    for (const c of cones) {
+    for (const c of visible) {
       for (const at of [0, 1]) {
         const rr = c.radius * (at ? 1 : 1 / TAPER);
         const mz = ((at ? maxYear : minYear) - midYear) * zScale;
@@ -203,11 +233,22 @@ export function TopicLandscape({
      * batches its cloud: one fill per band rather than one per article.
      */
     const BANDS = 6;
+    /*
+     * In topic mode the cloud is batched by depth, as before. In journal and
+     * reach mode a point's colour is its own, so the batching is by colour
+     * instead and depth is carried by the alpha of each pass. Either way it is
+     * a handful of fills rather than nine thousand.
+     */
+    const byColour = new Map<string, Path2D>();
     const bulk = Array.from({ length: BANDS }, () => new Path2D());
     const cited = Array.from({ length: BANDS }, () => new Path2D());
     const reviews = new Path2D();
+    const [loYear, hiYear] = yearRange;
+    const filtered = loYear > minYear || hiYear < maxYear;
     for (const p of points) {
       const c = cones[p.cone];
+      if (hiddenClusters.has(c.clusterId) || hiddenJournals.has(p.journalId)) continue;
+      if (filtered && (p.year < loYear || p.year > hiYear)) continue;
       const t = (p.year - minYear) / span;
       /*
        * The wall at this article's year, times how far out it sits on the map.
@@ -224,6 +265,21 @@ export function TopicLandscape({
       const mz = (p.year - midYear) * zScale;
       const x = px(mx, my, mz);
       const y = py(mx, my, mz);
+      if (colorMode !== "topic") {
+        const ink =
+          colorMode === "journal"
+            ? journalColor(p.journalId)
+            : (() => {
+                const band = reachBand(p.reach);
+                if (band === null) return REACH_UNKNOWN;
+                return (isDark ? REACH_DARK : REACH_LIGHT)[band];
+              })();
+        let path = byColour.get(ink);
+        if (!path) byColour.set(ink, (path = new Path2D()));
+        path.moveTo(x + 1.3, y);
+        path.arc(x, y, 1.3, 0, Math.PI * 2);
+        continue;
+      }
       if (p.isReview) {
         reviews.moveTo(x + 1.7, y);
         reviews.arc(x, y, 1.7, 0, Math.PI * 2);
@@ -235,27 +291,37 @@ export function TopicLandscape({
       into[band].moveTo(x + 1.1, y);
       into[band].arc(x, y, 1.1, 0, Math.PI * 2);
     }
-    ctx.fillStyle = dotInk;
-    bulk.forEach((path, band) => {
-      ctx.globalAlpha = 0.25 + (band / (BANDS - 1)) * 0.5;
-      ctx.fill(path);
-    });
-    ctx.fillStyle = citedInk;
-    cited.forEach((path, band) => {
-      ctx.globalAlpha = 0.35 + (band / (BANDS - 1)) * 0.5;
-      ctx.fill(path);
-    });
-    ctx.globalAlpha = 0.95;
-    ctx.fillStyle = reviewInk;
-    ctx.fill(reviews);
-    ctx.globalAlpha = 1;
+    if (colorMode !== "topic") {
+      ctx.globalAlpha = 0.75;
+      for (const [ink, path] of byColour) {
+        ctx.fillStyle = ink;
+        ctx.fill(path);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (colorMode === "topic") {
+      ctx.fillStyle = dotInk;
+      bulk.forEach((path, band) => {
+        ctx.globalAlpha = 0.25 + (band / (BANDS - 1)) * 0.5;
+        ctx.fill(path);
+      });
+      ctx.fillStyle = citedInk;
+      cited.forEach((path, band) => {
+        ctx.globalAlpha = 0.35 + (band / (BANDS - 1)) * 0.5;
+        ctx.fill(path);
+      });
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = reviewInk;
+      ctx.fill(reviews);
+      ctx.globalAlpha = 1;
+    }
 
     /*
      * Labels on the mouth of each cone, nearest last, and anything that would
      * land on a name already placed is skipped. Same rule the flat map uses:
      * forty-four names at this size cover the thing they are naming.
      */
-    const mouths = cones
+    const mouths = visible
       .map((c) => {
         const mz = (maxYear - midYear) * zScale;
         return {
@@ -285,7 +351,7 @@ export function TopicLandscape({
       ctx.fillStyle = labelInk;
       ctx.fillText(words, m.sx, y);
     }
-  }, [cones, points, minYear, maxYear]);
+  }, [cones, points, minYear, maxYear, colorMode, hiddenClusters, hiddenJournals, yearRange, journalColor]);
 
   const drawRef = useRef(draw);
   useEffect(() => {
@@ -433,7 +499,7 @@ export function TopicLandscape({
       </div>
       <canvas
         ref={canvasRef}
-        className="h-[min(78vh,50rem)] w-full cursor-grab rounded-[0.875rem] border border-neutral-200 bg-neutral-50 active:cursor-grabbing dark:border-neutral-800 dark:bg-neutral-950"
+        className="h-[calc(100vh-190px)] w-full cursor-grab active:cursor-grabbing"
         aria-label="Every topic as a cone, standing on the map, with height as the year"
       />
       {hover && (

@@ -106,6 +106,9 @@ export type MapPoint = {
    * takes the Reach mode off the map rather than drawing it empty.
    */
   reach?: number | null;
+  /** Whether it is itself a review, and how many reviews here cite it. */
+  isReview?: boolean;
+  reviewedBy?: number;
 };
 
 export type ArticleSummary = {

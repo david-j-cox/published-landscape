@@ -24,9 +24,6 @@ export async function NavBar() {
           <Link href="/articles" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
             Articles
           </Link>
-          <Link href="/landscape" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
-            The field over time
-          </Link>
           <Link href="/submit" className="text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
             See where a new article lands
           </Link>

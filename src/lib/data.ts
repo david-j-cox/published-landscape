@@ -156,9 +156,11 @@ export async function getMapPoints(): Promise<MapPoint[]> {
   if (mapCache && Date.now() - mapCache.at < MAP_TTL_MS) return mapCache.points;
   const rows = await sql<
     { openalex_id: string; map_x: number; map_y: number; cluster_id: number;
-      journal_id: number; year: number | null; title: string; names: string | null }[]
+      journal_id: number; year: number | null; title: string; names: string | null;
+      is_review: boolean; reviewed_by: number }[]
   >`
     select a.openalex_id, a.map_x, a.map_y, a.cluster_id, a.journal_id, a.year, a.title,
+      a.is_review, a.reviewed_by,
       (select string_agg(au.display_name, '|' order by ${positionOrder()}, au.display_name)
          from corpus_article_author aa join corpus_author au on au.id = aa.author_id
         where aa.article_id = a.id) as names
@@ -174,6 +176,8 @@ export async function getMapPoints(): Promise<MapPoint[]> {
     year: r.year,
     title: r.title,
     authorsShort: authorsShortOf(r.names ? r.names.split("|") : []),
+    isReview: r.is_review,
+    reviewedBy: Number(r.reviewed_by ?? 0),
   }));
   mapCache = { at: Date.now(), points };
   return points;

@@ -41,8 +41,7 @@ export default async function TrendsPage({
         <>
           <h1 className="text-2xl font-semibold tracking-tight">Topics</h1>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-            Click a topic to see how its articles cite each other. Or start from{" "}
-            <Link href="/landscape" className="underline">the field</Link>.
+            Click a topic to see how its articles cite each other.
           </p>
           <ul className="mt-8 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
             {clusters.map((c) => (
@@ -102,8 +101,8 @@ async function SelectedTopic({
 
   return (
     <>
-      <Link href="/landscape" className="text-sm text-neutral-500 hover:underline">
-        &larr; The field
+      <Link href="/map" className="text-sm text-neutral-500 hover:underline">
+        &larr; The map
       </Link>
       <div className="mt-4">
         {conePayload.length > 0 ? (

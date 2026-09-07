@@ -1,82 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
+import {
+  FALLBACK_JOURNAL_COLOR,
+  JOURNAL_COLORS,
+  REACH_BANDS,
+  REACH_DARK,
+  REACH_LIGHT,
+  REACH_UNKNOWN,
+  colorOf,
+  reachBand,
+  reachColorOf,
+  type ColorMode,
+} from "@/lib/map-colors";
 import type { ArticleDetail, Cluster, Journal, MapPoint, PendingPlacement } from "@/lib/types";
 import { YearRangeSlider } from "@/components/year-range-slider";
-
-const PALETTE = [
-  "#6cc5ff", "#a98bff", "#5fd6a4", "#ffb454", "#ff7a9c", "#7ce0e0",
-  "#c3a3ff", "#ffd166", "#8fd694", "#f4978e", "#9aa6bd",
-];
-const colorOf = (clusterId: number) => PALETTE[clusterId % PALETTE.length];
-
-// Journal colors keyed by ISSN-L (stable across re-ingests, unlike the
-// enumerate-index journal ids in corpus.json).
-const JOURNAL_COLORS: Record<string, string> = {
-  "0022-5002": "#22c55e", // JEAB - green
-  "0021-8855": "#ef4444", // JABA - red
-  "1998-1929": "#eab308", // BAP - yellow
-  "2520-8969": "#9ca3af", // PoBS - gray
-  "0889-9401": "#3b82f6", // TAVB - blue
-  "0033-2933": "#a855f7", // TPR - purple
-  "1072-0847": "#f97316", // BI - orange
-  "2372-9414": "#f3ecc9", // BA:RP - warm off-white (yellow-tinted cream)
-  "1064-9506": "#ec4899", // BSI - pink
-  "0748-8491": "#fda4af", // ETC - rose
-  "0376-6357": "#2dd4bf", // Behavioural Processes - teal (kept out of the green band:
-  //                        it overlaps JEAB and the two animal-learning journals on the map)
-  "1053-0819": "#a5b4fc", // Journal of Behavioral Education - periwinkle
-  "1543-4494": "#06b6d4", // Learning & Behavior - cyan
-  "2329-8456": "#84cc16", // JEP: Animal Learning and Cognition - lime
-  "0145-4455": "#fb923c", // Behavior Modification - light orange
-};
-const FALLBACK_JOURNAL_COLOR = "#ec4899"; // any future unmapped journal
-
-/**
- * Reach: how often an article is cited from outside these journals.
- *
- * A magnitude, so one hue getting darker as it rises rather than a set of
- * hues, and the bands are fixed counts rather than quantiles so the same
- * color means the same thing after a refresh, and after a filter. The light
- * ramp darkens with the value against a near-white canvas; the dark ramp
- * brightens against a near-black one, which is the same rule and not a flip
- * of the same swatches.
- *
- * The low end is deliberately the quiet one in both themes. Its contrast
- * against the canvas is under 3:1, which is why the key below spells the
- * bands out in numbers instead of leaving the color to carry them alone.
- */
-const REACH_BANDS = [
-  { floor: 0, label: "none" },
-  { floor: 1, label: "1-4" },
-  { floor: 5, label: "5-19" },
-  { floor: 20, label: "20-99" },
-  { floor: 100, label: "100+" },
-] as const;
-
-const REACH_LIGHT = ["#bae6fd", "#7dd3fc", "#38bdf8", "#0369a1", "#0c4a6e"];
-const REACH_DARK = ["#0c4a6e", "#0369a1", "#0284c7", "#38bdf8", "#7dd3fc"];
-// An article the citation graph has nothing for, in either theme.
-const REACH_UNKNOWN = "#71717a";
-
-function reachBand(reach: number | null | undefined): number | null {
-  if (reach === null || reach === undefined) return null;
-  let band = 0;
-  REACH_BANDS.forEach((b, i) => {
-    if (reach >= b.floor) band = i;
-  });
-  return band;
-}
-
-function reachColorOf(reach: number | null | undefined, isDark: boolean): string {
-  const band = reachBand(reach);
-  if (band === null) return REACH_UNKNOWN;
-  return (isDark ? REACH_DARK : REACH_LIGHT)[band];
-}
-
-type ColorMode = "topic" | "journal" | "reach";
+import { TopicLandscape, type Cone, type Spot } from "@/components/topic-landscape";
 
 const MODES = ["topic", "journal", "reach"] as const;
 
@@ -120,6 +61,81 @@ export function TopicMap({
   /** False when the citation graph could not be read; the mode is then absent. */
   reachAvailable?: boolean;
 }) {
+  /*
+   * Flat or standing.
+   *
+   * One page and one set of controls, because they are two drawings of the
+   * same thing: the colour mode, the legend and the year range mean exactly
+   * what they meant before, and switching between them should not lose where
+   * you had got to. The flat map answers what is near what; the field adds
+   * when it happened.
+   */
+  const [view, setView] = useState<"flat" | "field">("flat");
+
+  /*
+   * The field is derived from the same points the flat map draws, not fetched
+   * again.
+   *
+   * It was a second query and a second array over the wire, which put the page
+   * at 3.4 MB for nine thousand articles sent twice. Everything the cones need
+   * is already here: a cluster's centre and radius are two passes over its
+   * members, and an article's bearing and distance follow from its map
+   * position. Computed once and kept, because it depends on nothing a control
+   * changes -- filtering and colouring happen at draw time.
+   */
+  const field = useMemo(() => {
+    const byCluster = new Map<number, MapPoint[]>();
+    for (const p of points) {
+      const list = byCluster.get(p.cluster_id) ?? [];
+      list.push(p);
+      byCluster.set(p.cluster_id, list);
+    }
+    const cones: Cone[] = [];
+    const spots: Spot[] = [];
+    let min = Infinity;
+    let max = -Infinity;
+    const labelOf = new Map(clusters.map((c) => [c.id, c.label]));
+    for (const [clusterId, members] of [...byCluster.entries()].sort(
+      (a, b) => b[1].length - a[1].length,
+    )) {
+      const cx = members.reduce((t, m) => t + m.x, 0) / members.length;
+      const cy = members.reduce((t, m) => t + m.y, 0) / members.length;
+      let radius = 0;
+      for (const m of members) radius = Math.max(radius, Math.hypot(m.x - cx, m.y - cy));
+      radius = radius || 0.02;
+      const cone = cones.length;
+      cones.push({
+        clusterId,
+        label: labelOf.get(clusterId) ?? `Topic ${clusterId}`,
+        cx,
+        cy,
+        radius,
+        count: members.length,
+      });
+      for (const m of members) {
+        if (m.year === null) continue;
+        if (m.year < min) min = m.year;
+        if (m.year > max) max = m.year;
+        spots.push({
+          cone,
+          angle: Math.atan2(m.y - cy, m.x - cx),
+          spread: Math.min(1, Math.hypot(m.x - cx, m.y - cy) / radius),
+          year: m.year,
+          isReview: m.isReview ?? false,
+          reviewedBy: m.reviewedBy ?? 0,
+          journalId: m.journal_id,
+          reach: m.reach ?? 0,
+        });
+      }
+    }
+    return {
+      cones,
+      spots,
+      min: Number.isFinite(min) ? min : 0,
+      max: Number.isFinite(max) ? max : 0,
+    };
+  }, [points, clusters]);
+  const hasField = field.cones.length > 0;
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -698,7 +714,23 @@ export function TopicMap({
 
   return (
     <div ref={containerRef} className="relative h-[calc(100vh-57px)] w-full overflow-hidden bg-neutral-50 dark:bg-neutral-950">
-      <canvas ref={canvasRef} className="absolute inset-0 cursor-grab active:cursor-grabbing" />
+      {view === "field" && hasField ? (
+        <div className="absolute inset-0 overflow-auto p-4">
+          <TopicLandscape
+            cones={field.cones}
+            points={field.spots}
+            minYear={field.min}
+            maxYear={field.max}
+            colorMode={colorMode}
+            hiddenClusters={hiddenClusters}
+            hiddenJournals={hiddenJournals}
+            yearRange={yearRange}
+            journalColor={journalColorOf}
+          />
+        </div>
+      ) : (
+        <canvas ref={canvasRef} className="absolute inset-0 cursor-grab active:cursor-grabbing" />
+      )}
 
       <div
         ref={tooltipRef}
@@ -730,6 +762,23 @@ export function TopicMap({
         >
           Reset view
         </button>
+        {hasField && (
+          <div className="mb-2 flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
+            {(["flat", "field"] as const).map((which) => (
+              <button
+                key={which}
+                onClick={() => setView(which)}
+                className={`flex-1 py-1 font-semibold ${
+                  view === which
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                }`}
+              >
+                {which === "flat" ? "Flat" : "Over time"}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mb-2 flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
           {MODES.filter((mode) => mode !== "reach" || reachAvailable).map((mode) => (
             <button
