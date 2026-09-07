@@ -197,15 +197,57 @@ export async function coneGraph(
   const raw = citationGroups(points.length, edges);
   const size = new Map<number, number>();
   for (const g of raw) size.set(g, (size.get(g) ?? 0) + 1);
-  // Largest first, so group 0 is the biggest line of work. Everything past
-  // WEDGES falls into one shared id at the end.
-  const ranked = [...size.entries()]
+  const biggest = [...size.entries()]
     .sort((a, b) => b[1] - a[1] || a[0] - b[0])
     .filter(([, n]) => n > 1)
     .slice(0, WEDGES)
     .map(([g]) => g);
-  const rank = new Map(ranked.map((g, i) => [g, i]));
-  const remainder = ranked.length;
+
+  /*
+   * Neighbouring wedges for groups that cite each other.
+   *
+   * Wedge order was group size, which is arbitrary as far as the graph is
+   * concerned: two groups that cite each other heavily could land on opposite
+   * sides of the circle, and every edge between them then crossed the middle.
+   * Ordered greedily instead -- start at the largest, and each time step to
+   * whichever unplaced group shares the most citations with the one just
+   * placed. It does not remove the crossings, but it makes the heaviest
+   * pairs short.
+   */
+  const between = new Map<string, number>();
+  const groupOf = new Map<number, number>();
+  biggest.forEach((g, i) => groupOf.set(g, i));
+  for (const [a, b] of edges) {
+    const ga = groupOf.get(raw[a]);
+    const gb = groupOf.get(raw[b]);
+    if (ga === undefined || gb === undefined || ga === gb) continue;
+    const key = ga < gb ? `${ga}:${gb}` : `${gb}:${ga}`;
+    between.set(key, (between.get(key) ?? 0) + 1);
+  }
+  const weight = (a: number, b: number) =>
+    between.get(a < b ? `${a}:${b}` : `${b}:${a}`) ?? 0;
+
+  const order: number[] = [];
+  const left = new Set(biggest.map((_, i) => i));
+  let current = 0;
+  while (left.size > 0) {
+    if (!left.has(current)) current = [...left][0];
+    order.push(current);
+    left.delete(current);
+    let next = -1;
+    let best = -1;
+    for (const candidate of left) {
+      const w = weight(current, candidate);
+      if (w > best || (w === best && candidate < next)) {
+        best = w;
+        next = candidate;
+      }
+    }
+    current = next;
+  }
+
+  const rank = new Map(order.map((sizeRank, position) => [biggest[sizeRank], position]));
+  const remainder = biggest.length;
   const groups = raw.map((g) => rank.get(g) ?? remainder);
 
   const touched = new Set<number>();
@@ -216,7 +258,7 @@ export async function coneGraph(
   return {
     edges,
     groups,
-    groupCount: ranked.length,
+    groupCount: biggest.length,
     connected: touched.size,
   };
 }
