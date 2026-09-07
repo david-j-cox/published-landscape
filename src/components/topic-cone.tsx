@@ -27,18 +27,21 @@ function gathered(p: Point): boolean {
 export type Edge = [from: number, to: number];
 
 /**
- * Angle from the citation group, radius from the map.
+ * Every article on the surface, at its year, with the citations inside.
  *
- * The default arrangement is the map's: an article sits where its subject
- * puts it, and the cone is the map with time added. This is the other
- * structure in the same set. Each group of articles that cite each other gets
- * a wedge of the circle, sized by how many articles it holds, so a line of
- * work is a column and a citation between two of its papers runs up the
- * column rather than across the cone.
+ * The default arrangement is the map's: an article sits where its subject puts
+ * it, and the cone is the map with time added. This is the other structure in
+ * the same set. Each group of articles that cite each other gets a wedge of
+ * the circle, so a line of work is a column of the cone's wall and a citation
+ * between two of its papers runs up that wall.
  *
- * Distance from the centre is left as it was, which keeps the one thing the
- * map arrangement said that is still true here: how far from the middle of
- * its topic a paper sits. Only the bearing changes.
+ * Articles sit ON the wall rather than scattered through the volume, which is
+ * what makes the citations legible: the inside of the cone is then empty and
+ * belongs entirely to the edges, the way the rim of a chord diagram belongs to
+ * the nodes and the middle to the links. Distance from the centre stops
+ * meaning anything here -- it is the year, through the taper -- and that is
+ * the trade: the map arrangement keeps that reading, this one spends it on
+ * showing what cites what.
  */
 function wedgeLayout(points: Point[], groups: number[], groupCount: number): Point[] {
   const lastGroup = groupCount;
@@ -70,9 +73,21 @@ function wedgeLayout(points: Point[], groups: number[], groupCount: number): Poi
     acc += wedgeShare(g) * Math.PI * 2;
   }
 
-  const meanX = points.reduce((s, p) => s + p.x, 0) / points.length;
-  const meanY = points.reduce((s, p) => s + p.y, 0) / points.length;
   const placed = new Array<number>(lastGroup + 1).fill(0);
+
+  /*
+   * The radius is the year, so an article lands on the wall.
+   *
+   * draw() derives the cone from the points it is given: the narrowest cone of
+   * this taper that holds them all. Putting every article at exactly
+   * 1 + (TAPER - 1) * t makes that derivation return 1 for all of them, so the
+   * wall passes through the whole set and each article sits just inside it, by
+   * the same MARGIN the rim is drawn with. The absolute size does not matter,
+   * because the projection scales the scene to the canvas.
+   */
+  const years = points.map((p) => p.y0 ?? 0).filter((y) => y > 0);
+  const minYear = years.length ? Math.min(...years) : 0;
+  const span = Math.max(1, (years.length ? Math.max(...years) : 1) - minYear);
 
   return points.map((p, i) => {
     const g = Math.min(groups[i] ?? lastGroup, lastGroup);
@@ -81,7 +96,8 @@ function wedgeLayout(points: Point[], groups: number[], groupCount: number): Poi
     const at = (placed[g] + 0.5) / sizes[g];
     placed[g] += 1;
     const angle = starts[g] + width * (0.06 + at * 0.88);
-    const radius = Math.hypot(p.x - meanX, p.y - meanY);
+    const t = p.y0 === null ? 0 : (p.y0 - minYear) / span;
+    const radius = 1 + (TAPER - 1) * t;
     return { ...p, x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   });
 }
@@ -451,33 +467,67 @@ export default function TopicCone({
     }
 
     /*
-     * Where every visible article lands, kept by its index so an edge can
-     * find both of its ends without a second projection.
+     * Where every visible article lands, in model space and on screen. The
+     * model coordinates are kept because an edge is a curve through the
+     * inside of the cone, and a curve has to be built where the cone is
+     * before it can be projected.
      */
+    const model = new Map<number, { mx: number; my: number; mz: number }>();
     const at = new Map<number, { sx: number; sy: number; depth: number; q: number }>();
     for (const i of shown) {
       const p = laid[i];
-      at.set(i, project(p.x - meanX, p.y - meanY, ((p.y0 as number) - midYear) * zScale));
+      const mx = p.x - meanX;
+      const my = p.y - meanY;
+      const mz = ((p.y0 as number) - midYear) * zScale;
+      model.set(i, { mx, my, mz });
+      at.set(i, project(mx, my, mz));
     }
 
     /*
-     * The citations, under the articles.
+     * The citations, bowed through the middle, under the articles.
      *
-     * One path for all of them: at 2,592 edges in the largest topic, a stroke
-     * each would cost more than the cloud does. Drawn before the dots so a
-     * line never sits on top of the article it points at, and faint, because
-     * the structure is meant to be read as texture -- where the lines run
-     * vertically the wedge is one line of work citing itself, and where they
-     * cross the middle two groups are talking to each other.
+     * A straight chord between two points on the wall cuts the cone in half
+     * and every chord crosses every other one near the axis. Pulling the
+     * control point toward the axis gives what a chord diagram gives: two
+     * articles a few degrees apart get a shallow curl that hugs the wall,
+     * and two on opposite sides get a long sweep across the middle, so the
+     * distance between two papers is legible from the shape of the line
+     * rather than only from where it ends.
+     *
+     * The curve carries the year at both ends, so it also travels down the
+     * cone: a citation is a line from a paper to something older, and that
+     * is now a direction on screen and not just a connection.
+     *
+     * Sampled in model space and projected point by point, so the bow turns
+     * with the view instead of being a flat arc painted over it. Ten segments
+     * is where the polygon stops being visible at this scale.
      */
     if (drawnEdges.length > 0) {
+      const BOW = 0.42;
+      const STEPS = 10;
       const web = new Path2D();
       for (const [from, to] of drawnEdges) {
-        const a = at.get(from);
-        const b = at.get(to);
-        if (!a || !b) continue;
-        web.moveTo(a.sx, a.sy);
-        web.lineTo(b.sx, b.sy);
+        const a = model.get(from);
+        const b = model.get(to);
+        const sa = at.get(from);
+        if (!a || !b || !sa) continue;
+        const cx = ((a.mx + b.mx) / 2) * BOW;
+        const cy = ((a.my + b.my) / 2) * BOW;
+        const cz = (a.mz + b.mz) / 2;
+        web.moveTo(sa.sx, sa.sy);
+        for (let s = 1; s <= STEPS; s += 1) {
+          const t = s / STEPS;
+          const u = 1 - t;
+          const w0 = u * u;
+          const w1 = 2 * u * t;
+          const w2 = t * t;
+          const pt = project(
+            w0 * a.mx + w1 * cx + w2 * b.mx,
+            w0 * a.my + w1 * cy + w2 * b.my,
+            w0 * a.mz + w1 * cz + w2 * b.mz,
+          );
+          web.lineTo(pt.sx, pt.sy);
+        }
       }
       ctx.globalAlpha = 1;
       ctx.strokeStyle = edgeInk;
