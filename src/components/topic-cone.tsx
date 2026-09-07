@@ -293,7 +293,19 @@ export default function TopicCone({
     if (!canvas) return;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
-    const ratio = window.devicePixelRatio || 1;
+    /*
+     * While the view is moving, draw at one device pixel per CSS pixel.
+     *
+     * The cost of this picture is fill rate, not arithmetic: thousands of
+     * antialiased segments over the whole box, every frame. On a Retina
+     * display devicePixelRatio is 2, which is four times the pixels to cover,
+     * and that is the single biggest number in the budget. Nobody can see the
+     * softer edge on something that is turning; the full ratio comes back the
+     * moment it stops, and the resize only happens on that transition because
+     * the check below compares against the current backing store.
+     */
+    const moving = spinRef.current || drag.current !== null;
+    const ratio = moving ? 1 : window.devicePixelRatio || 1;
     if (canvas.width !== w * ratio || canvas.height !== h * ratio) {
       canvas.width = w * ratio;
       canvas.height = h * ratio;
@@ -557,14 +569,11 @@ export default function TopicCone({
     /*
      * Fewer segments while the view is moving.
      *
-     * The cost of this drawing is not the arithmetic, it is asking the canvas
-     * to rasterise tens of thousands of antialiased segments sixty times a
-     * second. Ten a curve is what makes them look like curves; four is enough
-     * while the thing is turning, when nobody is reading an individual line,
-     * and it comes back to ten the moment it stops. Nothing else changes, so
-     * the picture at rest is the picture that was designed.
+     * Ten a curve is what makes them look like curves; four is enough while
+     * the thing is turning, when nobody is reading an individual line, and it
+     * comes back to ten the moment it stops. Nothing else changes, so the
+     * picture at rest is the picture that was designed.
      */
-    const moving = spinRef.current || drag.current !== null;
 
     /*
      * The citations, bowed through the middle, under the articles.
@@ -803,12 +812,25 @@ export default function TopicCone({
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
+    let painted = 0;
+    /*
+     * Thirty frames a second, not sixty.
+     *
+     * A full turn takes forty seconds, so half the frames is still a smooth
+     * drift and half the drawing. The angle keeps advancing by real elapsed
+     * time, so the rotation runs at the same speed whatever the frame rate --
+     * only the number of pictures changes.
+     */
+    const MIN_FRAME_MS = 1000 / 30;
     const tick = (now: number) => {
       const dt = (now - last) / 1000;
       last = now;
       if (spinRef.current && !drag.current) {
         yaw.current += (Math.PI * 2 * dt) / TURN_SECONDS;
-        drawRef.current();
+        if (now - painted >= MIN_FRAME_MS) {
+          painted = now;
+          drawRef.current();
+        }
       }
       raf = requestAnimationFrame(tick);
     };
