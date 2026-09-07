@@ -116,9 +116,22 @@ export function TopicMap({
     )) {
       const cx = members.reduce((t, m) => t + m.x, 0) / members.length;
       const cy = members.reduce((t, m) => t + m.y, 0) / members.length;
-      let radius = 0;
-      for (const m of members) radius = Math.max(radius, Math.hypot(m.x - cx, m.y - cy));
-      radius = radius || 0.02;
+      /*
+       * The ninetieth percentile of the distances, not the largest of them.
+       *
+       * A cluster is a region of the map, but a few of its members sit far
+       * outside that region -- an embedding puts them near their neighbours,
+       * not inside a circle. Taking the furthest one let a diffuse topic claim
+       * a radius spanning most of the map, and its cone then enclosed every
+       * other cone: the field looked like one giant funnel with the topics
+       * inside it, a containment the data does not have. The percentile sizes
+       * a cone to the body of its topic and lets the stragglers sit outside
+       * the wall, which is where they are.
+       */
+      const spread = members
+        .map((m) => Math.hypot(m.x - cx, m.y - cy))
+        .sort((a, b) => a - b);
+      const radius = spread[Math.floor(spread.length * 0.9)] || spread.at(-1) || 0.02;
       const cone = cones.length;
       cones.push({
         clusterId,
