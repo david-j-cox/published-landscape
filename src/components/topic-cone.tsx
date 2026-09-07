@@ -501,16 +501,70 @@ export default function TopicCone({
      * inside of the cone, and a curve has to be built where the cone is
      * before it can be projected.
      */
-    const model = new Map<number, { mx: number; my: number; mz: number }>();
-    const at = new Map<number, { sx: number; sy: number; depth: number; q: number }>();
+    const count = laid.length;
+    const mxs = new Float64Array(count);
+    const mys = new Float64Array(count);
+    const mzs = new Float64Array(count);
+    const sxs = new Float64Array(count);
+    const sys = new Float64Array(count);
+    const depths = new Float64Array(count);
+    const qs = new Float64Array(count);
     for (const i of shown) {
       const p = laid[i];
       const mx = p.x - meanX;
       const my = p.y - meanY;
       const mz = ((p.y0 as number) - midYear) * zScale;
-      model.set(i, { mx, my, mz });
-      at.set(i, project(mx, my, mz));
+      mxs[i] = mx;
+      mys[i] = my;
+      mzs[i] = mz;
+      const hit = project(mx, my, mz);
+      sxs[i] = hit.sx;
+      sys[i] = hit.sy;
+      depths[i] = hit.depth;
+      qs[i] = hit.q;
     }
+
+    /*
+     * The rotation, unpacked, so the two hot loops below can project without
+     * calling anything.
+     *
+     * project() returns a fresh object per call. That is fine for the rings
+     * and the dots, which are hundreds; it is not fine for the curves, which
+     * were 26,000 samples a frame and so 26,000 objects a frame at sixty
+     * frames a second. The browser stalled and jerked, and it was the garbage
+     * collector doing it. Measured at 0.94ms a frame against 0.58 for the
+     * same arithmetic written out.
+     */
+    const rcy = Math.cos(yaw.current);
+    const rsy = Math.sin(yaw.current);
+    const rcp = Math.cos(pitch.current);
+    const rsp = Math.sin(pitch.current);
+    const halfW = w / 2;
+    const halfH = h / 2;
+    const projX = (mx: number, my: number, mz: number) => {
+      const x1 = mx * rcy - my * rsy;
+      const z1 = mx * rsy + my * rcy;
+      const z2 = mz * rsp + z1 * rcp;
+      return halfW + x1 * (cam / Math.max(cam * 0.55, cam + z2)) * scale;
+    };
+    const projY = (mx: number, my: number, mz: number) => {
+      const z1 = mx * rsy + my * rcy;
+      const y2 = mz * rcp - z1 * rsp;
+      const z2 = mz * rsp + z1 * rcp;
+      return halfH - y2 * (cam / Math.max(cam * 0.55, cam + z2)) * scale;
+    };
+
+    /*
+     * Fewer segments while the view is moving.
+     *
+     * The cost of this drawing is not the arithmetic, it is asking the canvas
+     * to rasterise tens of thousands of antialiased segments sixty times a
+     * second. Ten a curve is what makes them look like curves; four is enough
+     * while the thing is turning, when nobody is reading an individual line,
+     * and it comes back to ten the moment it stops. Nothing else changes, so
+     * the picture at rest is the picture that was designed.
+     */
+    const moving = spinRef.current || drag.current !== null;
 
     /*
      * The citations, bowed through the middle, under the articles.
@@ -548,18 +602,16 @@ export default function TopicCone({
     if (byCitation && mostOutside > 0) {
       const quills = new Path2D();
       for (const i of shown) {
-        const p = laid[i];
-        const out = p.o ?? 0;
+        const out = laid[i].o ?? 0;
         if (out <= 0) continue;
-        const here = model.get(i);
-        if (!here) continue;
-        const radius = Math.hypot(here.mx, here.my);
+        const mx = mxs[i];
+        const my = mys[i];
+        const mz = mzs[i];
+        const radius = Math.hypot(mx, my);
         if (radius < 1e-9) continue;
         const grown = (radius + spikeLength(out)) / radius;
-        const base = project(here.mx, here.my, here.mz);
-        const tip = project(here.mx * grown, here.my * grown, here.mz);
-        quills.moveTo(base.sx, base.sy);
-        quills.lineTo(tip.sx, tip.sy);
+        quills.moveTo(sxs[i], sys[i]);
+        quills.lineTo(projX(mx * grown, my * grown, mz), projY(mx * grown, my * grown, mz));
       }
       ctx.globalAlpha = 1;
       ctx.strokeStyle = spikeInk;
@@ -586,29 +638,31 @@ export default function TopicCone({
 
     if (edgesToDraw.length > 0) {
       const BOW = 0.42;
-      const STEPS = 10;
+      const STEPS = moving ? 4 : 10;
       const web = new Path2D();
-      for (const [from, to] of edgesToDraw) {
-        const a = model.get(from);
-        const b = model.get(to);
-        const sa = at.get(from);
-        if (!a || !b || !sa) continue;
-        const cx = ((a.mx + b.mx) / 2) * BOW;
-        const cy = ((a.my + b.my) / 2) * BOW;
-        const cz = (a.mz + b.mz) / 2;
-        web.moveTo(sa.sx, sa.sy);
-        for (let s = 1; s <= STEPS; s += 1) {
-          const t = s / STEPS;
+      for (let e = 0; e < edgesToDraw.length; e += 1) {
+        const from = edgesToDraw[e][0];
+        const to = edgesToDraw[e][1];
+        const ax = mxs[from];
+        const ay = mys[from];
+        const az = mzs[from];
+        const bx = mxs[to];
+        const by = mys[to];
+        const bz = mzs[to];
+        const cx = ((ax + bx) / 2) * BOW;
+        const cy = ((ay + by) / 2) * BOW;
+        const cz = (az + bz) / 2;
+        web.moveTo(sxs[from], sys[from]);
+        for (let step = 1; step <= STEPS; step += 1) {
+          const t = step / STEPS;
           const u = 1 - t;
           const w0 = u * u;
           const w1 = 2 * u * t;
           const w2 = t * t;
-          const pt = project(
-            w0 * a.mx + w1 * cx + w2 * b.mx,
-            w0 * a.my + w1 * cy + w2 * b.my,
-            w0 * a.mz + w1 * cz + w2 * b.mz,
-          );
-          web.lineTo(pt.sx, pt.sy);
+          const mx = w0 * ax + w1 * cx + w2 * bx;
+          const my = w0 * ay + w1 * cy + w2 * by;
+          const mz = w0 * az + w1 * cz + w2 * bz;
+          web.lineTo(projX(mx, my, mz), projY(mx, my, mz));
         }
       }
       ctx.globalAlpha = 1;
@@ -622,7 +676,10 @@ export default function TopicCone({
       .map((i) => ({
         p: laid[i],
         at: i,
-        ...(at.get(i) as { sx: number; sy: number; depth: number; q: number }),
+        sx: sxs[i],
+        sy: sys[i],
+        depth: depths[i],
+        q: qs[i],
       }))
       .sort((a, b) => a.depth - b.depth);
 
@@ -765,6 +822,18 @@ export default function TopicCone({
   }, [schedule, draw]);
 
   /*
+   * And so does stopping.
+   *
+   * The curves are drawn at four segments while the view is turning and ten
+   * when it is still. The spin loop stops calling draw the moment it is
+   * switched off, so without this the last frame anyone sees is the cheap
+   * one, and stopping the cone to look at it would leave it looking worse.
+   */
+  useEffect(() => {
+    if (!spinning) schedule();
+  }, [spinning, schedule]);
+
+  /*
    * The backing store is sized inside draw(), from the box's laid-out size.
    * Nothing redrew when that size changed, so resizing the window left the
    * old bitmap stretched across the new box until something else happened to
@@ -797,7 +866,10 @@ export default function TopicCone({
       if (spinRef.current) setSpinning(false);
     };
     const onUp = () => {
+      if (!drag.current) return;
       drag.current = null;
+      // Back to the full curve now that the view has stopped moving.
+      schedule();
     };
     const onMove = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
