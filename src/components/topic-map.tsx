@@ -1,7 +1,9 @@
 "use client";
 
+import { attachGestures } from "@/lib/gestures";
+
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { PLACEMENT_STORAGE_KEY } from "@/lib/constants";
 import {
@@ -50,6 +52,16 @@ function wrapLabel(text: string, maxChars: number): string[] {
   return lines;
 }
 
+const NARROW = "(max-width: 639px)";
+function subscribeToNarrow(onChange: () => void) {
+  const query = window.matchMedia(NARROW);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+function isNarrow() {
+  return window.matchMedia(NARROW).matches;
+}
+
 export function TopicMap({
   points,
   clusters,
@@ -83,7 +95,20 @@ export function TopicMap({
    * over something, so it folds away instead, and the map remembers that the
    * reader folded it.
    */
-  const [controlsOpen, setControlsOpen] = useState(true);
+  /*
+   * Folded to begin with on a phone, where the panel is most of the screen
+   * rather than a corner of it, and open everywhere else -- until the reader
+   * says otherwise, after which their choice holds at any width.
+   *
+   * Subscribed to rather than measured once: the server has no window, and
+   * writing the answer into state from an effect is what this codebase's lint
+   * rule exists to stop. getServerSnapshot reports "not narrow", so the markup
+   * React renders on the server is the desktop one and the client corrects it
+   * during hydration.
+   */
+  const narrow = useSyncExternalStore(subscribeToNarrow, isNarrow, () => false);
+  const [controlsChoice, setControlsChoice] = useState<boolean | null>(null);
+  const controlsOpen = controlsChoice ?? !narrow;
   const router = useRouter();
   /** How the aside's Reset view reaches the field's camera. */
   const fieldReset = useRef<(() => void) | null>(null);
@@ -489,35 +514,56 @@ export function TopicMap({
       tooltip!.style.top = `${y}px`;
     }
 
-    let dragging = false, moved = false, last = { x: 0, y: 0 };
+    let moved = false;
+    /*
+     * Zooming about a point, shared by the wheel and the pinch: the world
+     * coordinate under the anchor has to stay under it, or the map slides away
+     * from whatever the reader was pointing at.
+     */
+    function zoomAbout(factor: number, mx: number, my: number) {
+      const wx = (mx - viewRef.current.ox) / viewRef.current.scale;
+      const wy = -(my - viewRef.current.oy) / viewRef.current.scale;
+      viewRef.current.scale = Math.max(
+        fitRef.current.scale * 0.5,
+        Math.min(fitRef.current.scale * 12, viewRef.current.scale * factor),
+      );
+      viewRef.current.ox = mx - wx * viewRef.current.scale;
+      viewRef.current.oy = my + wy * viewRef.current.scale;
+      draw();
+    }
 
-    function onMouseDown(e: MouseEvent) {
-      dragging = true;
-      moved = false;
-      last = { x: e.clientX, y: e.clientY };
-    }
-    function onMouseUp() {
-      dragging = false;
-    }
-    function onMouseMove(e: MouseEvent) {
-      if (dragging) {
-        const dx = e.clientX - last.x, dy = e.clientY - last.y;
-        if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
-        viewRef.current.ox += dx;
-        viewRef.current.oy += dy;
-        last = { x: e.clientX, y: e.clientY };
+    const detach = attachGestures(canvas, {
+      onPressStart: () => {
+        moved = false;
+      },
+      onDrag: ({ stepX, stepY }) => {
+        if (Math.abs(stepX) + Math.abs(stepY) > 2) moved = true;
+        viewRef.current.ox += stepX;
+        viewRef.current.oy += stepY;
         draw();
-        return;
-      }
-      const [px, py] = localXY(e.clientX, e.clientY);
-      const hit = nodeAt(px, py);
-      if (hit !== hoveredRef.current) {
-        hoveredRef.current = hit;
-        draw();
-      }
-      if (hit) showTooltip(hit, px, py);
-      else tooltip!.hidden = true;
-    }
+      },
+      onPinch: ({ factor, x, y }) => {
+        moved = true;
+        zoomAbout(factor, x, y);
+      },
+      onHover: (at) => {
+        if (!at) {
+          if (hoveredRef.current !== null) {
+            hoveredRef.current = null;
+            draw();
+          }
+          tooltip!.hidden = true;
+          return;
+        }
+        const hit = nodeAt(at.x, at.y);
+        if (hit !== hoveredRef.current) {
+          hoveredRef.current = hit;
+          draw();
+        }
+        if (hit) showTooltip(hit, at.x, at.y);
+        else tooltip!.hidden = true;
+      },
+    });
     function onClick(e: MouseEvent) {
       if (moved) return;
       const [px, py] = localXY(e.clientX, e.clientY);
@@ -532,16 +578,7 @@ export function TopicMap({
     function onWheel(e: WheelEvent) {
       e.preventDefault();
       const [mx, my] = localXY(e.clientX, e.clientY);
-      const wx = (mx - viewRef.current.ox) / viewRef.current.scale;
-      const wy = -(my - viewRef.current.oy) / viewRef.current.scale;
-      const factor = Math.exp(-e.deltaY * 0.0015);
-      viewRef.current.scale = Math.max(
-        fitRef.current.scale * 0.5,
-        Math.min(fitRef.current.scale * 12, viewRef.current.scale * factor),
-      );
-      viewRef.current.ox = mx - wx * viewRef.current.scale;
-      viewRef.current.oy = my + wy * viewRef.current.scale;
-      draw();
+      zoomAbout(Math.exp(-e.deltaY * 0.0015), mx, my);
     }
     function onResize() {
       resize();
@@ -553,9 +590,6 @@ export function TopicMap({
     computeFit();
     draw();
 
-    canvas.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("mouseup", onMouseUp);
-    window.addEventListener("mousemove", onMouseMove);
     canvas.addEventListener("click", onClick);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("resize", onResize);
@@ -584,9 +618,7 @@ export function TopicMap({
 
     return () => {
       cancelAnimationFrame(pulseRAF);
-      canvas.removeEventListener("mousedown", onMouseDown);
-      window.removeEventListener("mouseup", onMouseUp);
-      window.removeEventListener("mousemove", onMouseMove);
+      detach();
       canvas.removeEventListener("click", onClick);
       canvas.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
@@ -779,7 +811,7 @@ export function TopicMap({
 
       {!controlsOpen && (
         <button
-          onClick={() => setControlsOpen(true)}
+          onClick={() => setControlsChoice(true)}
           className="absolute right-3 top-3 z-10 rounded-lg border border-neutral-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-neutral-600 shadow-sm hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-800"
         >
           Controls
@@ -788,10 +820,10 @@ export function TopicMap({
 
       <aside
         hidden={!controlsOpen}
-        className="absolute right-3 top-3 z-10 max-h-[calc(100%-24px)] w-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95"
+        className="absolute right-3 top-3 z-10 max-h-[calc(100%-24px)] w-[min(14rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-neutral-200 bg-white/95 p-3 text-xs shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95"
       >
         <button
-          onClick={() => setControlsOpen(false)}
+          onClick={() => setControlsChoice(false)}
           className="mb-2 w-full rounded-md py-1 text-right text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
         >
           Hide controls

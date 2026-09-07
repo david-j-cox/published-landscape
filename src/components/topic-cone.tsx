@@ -1,5 +1,7 @@
 "use client";
 
+import { attachGestures } from "@/lib/gestures";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 export interface Point {
   x: number;
@@ -213,7 +215,7 @@ export default function TopicCone({
   const yaw = useRef(openYaw);
   const pitch = useRef(openPitch);
   const zoom = useRef(openZoom);
-  const drag = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
+  const drag = useRef<{ yaw: number; pitch: number } | null>(null);
   const frame = useRef<number | null>(null);
   const spinRef = useRef(true);
   // Mirrored into a ref for the animation loop and the pointer handlers,
@@ -873,58 +875,67 @@ export default function TopicCone({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const onDown = (e: MouseEvent) => {
-      drag.current = { x: e.clientX, y: e.clientY, yaw: yaw.current, pitch: pitch.current };
-      setHover(null);
-      /*
-       * Turning it by hand stops it turning by itself.
-       *
-       * Reaching an article already stopped the spin, for the same reason:
-       * you cannot work with a moving target. Dragging did not, so the view
-       * carried on rotating out from under the angle just set -- and "Save
-       * this angle" then stored wherever the spin had reached by the time the
-       * mouse got to the button, which is not the angle anyone chose.
-       */
-      if (spinRef.current) setSpinning(false);
-    };
-    const onUp = () => {
-      if (!drag.current) return;
-      drag.current = null;
-      // Back to the full curve now that the view has stopped moving.
-      schedule();
-    };
-    const onMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      if (drag.current) {
-        yaw.current = drag.current.yaw + (e.clientX - drag.current.x) * 0.008;
+    const detach = attachGestures(canvas, {
+      onPressStart: () => {
+        drag.current = { yaw: yaw.current, pitch: pitch.current };
+        setHover(null);
+        /*
+         * Turning it by hand stops it turning by itself.
+         *
+         * Reaching an article already stopped the spin, for the same reason:
+         * you cannot work with a moving target. Dragging did not, so the view
+         * carried on rotating out from under the angle just set -- and "Save
+         * this angle" then stored wherever the spin had reached by the time
+         * the mouse got to the button, which is not the angle anyone chose.
+         */
+        if (spinRef.current) setSpinning(false);
+      },
+      onPressEnd: () => {
+        if (!drag.current) return;
+        drag.current = null;
+        // Back to the full curve now that the view has stopped moving.
+        schedule();
+      },
+      onDrag: ({ totalX, totalY }) => {
+        if (!drag.current) return;
+        yaw.current = drag.current.yaw + totalX * 0.008;
         // Clamped short of straight down, where the cone collapses to a disc
         // and the years stop being readable.
         pitch.current = Math.max(
           -1.3,
-          Math.min(1.3, drag.current.pitch + (e.clientY - drag.current.y) * 0.006),
+          Math.min(1.3, drag.current.pitch + totalY * 0.006),
         );
         schedule();
-        return;
-      }
-      let best: { title: string; d: number } | null = null;
-      for (const p of projectedRef.current) {
-        const d = (p.sx - mx) ** 2 + (p.sy - my) ** 2;
-        if (d < 30 && (!best || d < best.d)) best = { title: p.title, d };
-      }
-      /*
-       * Reaching an article stops the turn. A moving target cannot be clicked,
-       * and a student who has found something wants to read it rather than
-       * chase it -- the same behavior as the history landscape.
-       */
-      if (best && spinRef.current) setSpinning(false);
-      setHover((prev) => {
-        if (!best) return prev === null ? prev : null;
-        if (prev && prev.title === best.title) return prev;
-        return { title: best.title, ...place(mx, my, rect.width, 320) };
-      });
-    };
+      },
+      onPinch: ({ factor }) => {
+        zoom.current = Math.min(6, Math.max(0.5, zoom.current * factor));
+        schedule();
+      },
+      onHover: (at) => {
+        if (!at) {
+          setHover(null);
+          return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        let best: { title: string; d: number } | null = null;
+        for (const p of projectedRef.current) {
+          const d = (p.sx - at.x) ** 2 + (p.sy - at.y) ** 2;
+          if (d < 30 && (!best || d < best.d)) best = { title: p.title, d };
+        }
+        /*
+         * Reaching an article stops the turn. A moving target cannot be
+         * clicked, and a student who has found something wants to read it
+         * rather than chase it -- the same behavior as the history landscape.
+         */
+        if (best && spinRef.current) setSpinning(false);
+        setHover((prev) => {
+          if (!best) return prev === null ? prev : null;
+          if (prev && prev.title === best.title) return prev;
+          return { title: best.title, ...place(at.x, at.y, rect.width, 320) };
+        });
+      },
+    });
+
     const onClick = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -950,15 +961,10 @@ export default function TopicCone({
     };
 
     canvas.addEventListener("click", onClick);
-    canvas.addEventListener("mousedown", onDown);
-    window.addEventListener("mouseup", onUp);
-    canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => {
+      detach();
       canvas.removeEventListener("click", onClick);
-      canvas.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mouseup", onUp);
-      canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("wheel", onWheel);
       /*
        * Clearing the id is the whole of the fix for the freeze.

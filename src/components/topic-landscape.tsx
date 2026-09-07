@@ -1,5 +1,6 @@
 "use client";
 
+import { attachGestures } from "@/lib/gestures";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   REACH_DARK,
@@ -110,7 +111,7 @@ export function TopicLandscape({
   const yaw = useRef(START_YAW);
   const pitch = useRef(START_PITCH);
   const zoom = useRef(1);
-  const drag = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
+  const drag = useRef<{ yaw: number; pitch: number } | null>(null);
   const frame = useRef<number | null>(null);
   const spinRef = useRef(true);
   useEffect(() => {
@@ -419,6 +420,37 @@ export function TopicLandscape({
       ctx.fillStyle = labelInk;
       ctx.fillText(words, m.sx, y);
     }
+
+    /*
+     * The two years the cones run between, at the heights they run between.
+     *
+     * The caption says height is the year, which is the rule but not the
+     * scale: without a number at each end the reader cannot tell where in the
+     * range a band of articles sits. One pair on the axis rather than a pair
+     * per cone -- forty-four cones would put eighty-eight numbers on a drawing
+     * whose whole vertical extent is one scale, all of them saying the same
+     * two things.
+     *
+     * Anchored at the model origin, which is where the fit centres the scene,
+     * so the marks stay level with the mouths and bases as the field turns.
+     * Held at a fixed inset from the left edge instead of following the
+     * projection sideways: this is an axis, and an axis that slid around the
+     * frame while the scene rotated would be harder to read than no axis.
+     */
+    ctx.textAlign = "left";
+    ctx.font = "600 11px ui-sans-serif, system-ui, sans-serif";
+    for (const [year, mz] of [
+      [maxYear, (maxYear - midYear) * zScale],
+      [minYear, (minYear - midYear) * zScale],
+    ] as const) {
+      const label = String(year);
+      const at = py(0, 0, mz);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = labelHalo;
+      ctx.strokeText(label, 12, at);
+      ctx.fillStyle = labelInk;
+      ctx.fillText(label, 12, at);
+    }
   }, [cones, points, minYear, maxYear, colorMode, hiddenClusters, hiddenJournals, yearRange, journalColor]);
 
   const drawRef = useRef(draw);
@@ -504,50 +536,52 @@ export function TopicLandscape({
       }
       return best?.cone ?? null;
     };
-    const onDown = (e: MouseEvent) => {
-      drag.current = { x: e.clientX, y: e.clientY, yaw: yaw.current, pitch: pitch.current };
-      setHover(null);
-      if (spinRef.current) setSpinning(false);
-    };
-    const onUp = () => {
-      if (!drag.current) return;
-      drag.current = null;
-      schedule();
-    };
-    const onMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      if (drag.current) {
-        yaw.current = drag.current.yaw + (e.clientX - drag.current.x) * 0.008;
+    const detach = attachGestures(canvas, {
+      onPressStart: () => {
+        drag.current = { yaw: yaw.current, pitch: pitch.current };
+        setHover(null);
+        if (spinRef.current) setSpinning(false);
+      },
+      onPressEnd: () => {
+        if (!drag.current) return;
+        drag.current = null;
+        schedule();
+      },
+      onDrag: ({ totalX, totalY }) => {
+        if (!drag.current) return;
+        yaw.current = drag.current.yaw + totalX * 0.008;
         pitch.current = Math.max(
           -1.3,
-          Math.min(1.3, drag.current.pitch + (e.clientY - drag.current.y) * 0.006),
+          Math.min(1.3, drag.current.pitch + totalY * 0.006),
         );
         schedule();
-        return;
-      }
-      const c = nearest(mx, my);
-      setHover((prev) => {
-        if (!c) return prev === null ? prev : null;
-        if (prev && prev.label === c.label) return prev;
-        return { label: c.label, count: c.count, x: mx + 12, y: my + 12 };
-      });
-    };
+      },
+      onPinch: ({ factor }) => {
+        zoom.current = Math.min(8, Math.max(0.4, zoom.current * factor));
+        schedule();
+      },
+      onHover: (at) => {
+        if (!at) {
+          setHover(null);
+          return;
+        }
+        const c = nearest(at.x, at.y);
+        setHover((prev) => {
+          if (!c) return prev === null ? prev : null;
+          if (prev && prev.label === c.label) return prev;
+          return { label: c.label, count: c.count, x: at.x + 12, y: at.y + 12 };
+        });
+      },
+    });
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       zoom.current = Math.min(8, Math.max(0.4, zoom.current * (e.deltaY < 0 ? 1.1 : 0.91)));
       schedule();
     };
-    canvas.addEventListener("mousedown", onDown);
-    window.addEventListener("mouseup", onUp);
-    canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => {
-      canvas.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mouseup", onUp);
-      canvas.removeEventListener("mousemove", onMove);
+      detach();
       canvas.removeEventListener("wheel", onWheel);
       if (frame.current !== null) {
         cancelAnimationFrame(frame.current);
@@ -592,9 +626,8 @@ export function TopicLandscape({
         </span>
       )}
       <p className="mt-1.5 text-[0.7rem] text-neutral-500 dark:text-neutral-400">
-        Height is the year, so a stump is a topic that stopped and a funnel is one still
-        being published. Drag to turn, scroll to zoom. Pick a topic in the legend to open
-        its citations.
+        Height is the year. Drag to turn, scroll to zoom. Pick a topic in the legend to
+        open its citations.
       </p>
     </div>
   );
