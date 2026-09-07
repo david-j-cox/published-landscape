@@ -23,6 +23,51 @@ function gathered(p: Point): boolean {
   return (p.n ?? 0) > 0;
 }
 
+/** A citation from one article in the topic to another, as indices. */
+export type Edge = [from: number, to: number];
+
+/**
+ * Angle from the citation group, radius from the map.
+ *
+ * The default arrangement is the map's: an article sits where its subject
+ * puts it, and the cone is the map with time added. This is the other
+ * structure in the same set. Each group of articles that cite each other gets
+ * a wedge of the circle, sized by how many articles it holds, so a line of
+ * work is a column and a citation between two of its papers runs up the
+ * column rather than across the cone.
+ *
+ * Distance from the centre is left as it was, which keeps the one thing the
+ * map arrangement said that is still true here: how far from the middle of
+ * its topic a paper sits. Only the bearing changes.
+ */
+function wedgeLayout(points: Point[], groups: number[], groupCount: number): Point[] {
+  const lastGroup = groupCount;
+  const sizes = new Array<number>(lastGroup + 1).fill(0);
+  for (const g of groups) sizes[Math.min(g, lastGroup)] += 1;
+
+  const starts = new Array<number>(lastGroup + 1).fill(0);
+  let acc = 0;
+  for (let g = 0; g <= lastGroup; g += 1) {
+    starts[g] = acc;
+    acc += (sizes[g] / points.length) * Math.PI * 2;
+  }
+
+  const meanX = points.reduce((s, p) => s + p.x, 0) / points.length;
+  const meanY = points.reduce((s, p) => s + p.y, 0) / points.length;
+  const placed = new Array<number>(lastGroup + 1).fill(0);
+
+  return points.map((p, i) => {
+    const g = Math.min(groups[i] ?? lastGroup, lastGroup);
+    const width = (sizes[g] / points.length) * Math.PI * 2;
+    // A small inset at each end, so two wedges do not run into one another.
+    const at = (placed[g] + 0.5) / sizes[g];
+    placed[g] += 1;
+    const angle = starts[g] + width * (0.06 + at * 0.88);
+    const radius = Math.hypot(p.x - meanX, p.y - meanY);
+    return { ...p, x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+  });
+}
+
 /**
  * How far above the cone the camera sits.
  *
@@ -90,10 +135,19 @@ export default function TopicCone({
   points,
   label,
   onClose,
+  edges,
+  groups,
+  groupCount = 0,
 }: {
   points: Point[];
   label: string;
   onClose: () => void;
+  /** Citations between articles in this topic. Absent when there are none. */
+  edges?: Edge[];
+  /** Which citation group each article belongs to, aligned to points. */
+  groups?: number[];
+  /** How many groups got a wedge; the rest share the id equal to this. */
+  groupCount?: number;
 }) {
   /*
    * Which way the cone faces when it opens. Fixed here rather than stored:
@@ -143,27 +197,54 @@ export default function TopicCone({
    * listeners, the resize observer. On a topic with a couple of thousand
    * articles that is a lot of work to do because a tooltip appeared.
    */
-  const dated = useMemo(
-    () =>
-      points.filter(
-        (p) =>
-          p.y0 !== null &&
-          (kind === "all"
-            ? true
-            : kind === "reviews"
-              ? p.r === 1
-              : kind === "open"
-                ? // The ground nobody has gathered up: an article no review
-                  // here cites, and not itself a review.
-                  p.r !== 1 && !gathered(p)
-                : p.r !== 1),
-      ),
-    [points, kind],
+  const hasGraph = Boolean(edges && edges.length > 0 && groups);
+  const [layout, setLayout] = useState<"citation" | "map">("citation");
+  const byCitation = hasGraph && layout === "citation";
+
+  /*
+   * The coordinates everything below is drawn from. Two arrangements of the
+   * same articles: where their subject puts them, or where their citing does.
+   * Swapped here rather than at each use, so the projection, the sizing and
+   * the hit-testing never have to know which one is showing.
+   */
+  const laid = useMemo(
+    () => (byCitation ? wedgeLayout(points, groups as number[], groupCount) : points),
+    [points, groups, groupCount, byCitation],
   );
+
+  /** Indices into `laid`, so an edge can find both of its ends. */
+  const shown = useMemo(() => {
+    const out: number[] = [];
+    laid.forEach((p, i) => {
+      if (p.y0 === null) return;
+      const keep =
+        kind === "all"
+          ? true
+          : kind === "reviews"
+            ? p.r === 1
+            : kind === "open"
+              ? // The ground nobody has gathered up: an article no review here
+                // cites, and not itself a review.
+                p.r !== 1 && !gathered(p)
+              : p.r !== 1;
+      if (keep) out.push(i);
+    });
+    return out;
+  }, [laid, kind]);
+
+  const dated = useMemo(() => shown.map((i) => laid[i]), [shown, laid]);
+
+  /** The citations with both ends currently on screen. */
+  const drawnEdges = useMemo(() => {
+    if (!edges || !byCitation) return [];
+    const visible = new Set(shown);
+    return edges.filter(([a, b]) => visible.has(a) && visible.has(b));
+  }, [edges, shown, byCitation]);
+
   // The cone itself is sized from every article, so switching the filter does
   // not resize the funnel underneath. A reviews-only view of the same topic
   // should sit in the same shape, or the years stop being comparable.
-  const all = useMemo(() => points.filter((p) => p.y0 !== null), [points]);
+  const all = useMemo(() => laid.filter((p) => p.y0 !== null), [laid]);
   /** Whether this corpus knows about citations at all. */
   const anyCited = useMemo(() => points.some(gathered), [points]);
   /** Where each article landed on screen, for hit-testing the hover. */
@@ -194,6 +275,7 @@ export default function TopicCone({
     const planeEdge = isDark ? "rgba(150,180,220,0.16)" : "rgba(70,110,160,0.22)";
     const ribs = isDark ? "rgba(150,180,220,0.07)" : "rgba(70,110,160,0.12)";
     const yearInk = isDark ? "rgba(160,190,225,0.65)" : "rgba(60,90,130,0.75)";
+    const edgeInk = isDark ? "rgba(120,160,205,0.20)" : "rgba(60,95,140,0.16)";
     const bulkInk = isDark ? "#8b96a3" : "#6b7480";
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -350,12 +432,44 @@ export default function TopicCone({
       ctx.stroke();
     }
 
+    /*
+     * Where every visible article lands, kept by its index so an edge can
+     * find both of its ends without a second projection.
+     */
+    const at = new Map<number, { sx: number; sy: number; depth: number; q: number }>();
+    for (const i of shown) {
+      const p = laid[i];
+      at.set(i, project(p.x - meanX, p.y - meanY, ((p.y0 as number) - midYear) * zScale));
+    }
+
+    /*
+     * The citations, under the articles.
+     *
+     * One path for all of them: at 2,592 edges in the largest topic, a stroke
+     * each would cost more than the cloud does. Drawn before the dots so a
+     * line never sits on top of the article it points at, and faint, because
+     * the structure is meant to be read as texture -- where the lines run
+     * vertically the wedge is one line of work citing itself, and where they
+     * cross the middle two groups are talking to each other.
+     */
+    if (drawnEdges.length > 0) {
+      const web = new Path2D();
+      for (const [from, to] of drawnEdges) {
+        const a = at.get(from);
+        const b = at.get(to);
+        if (!a || !b) continue;
+        web.moveTo(a.sx, a.sy);
+        web.lineTo(b.sx, b.sy);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = edgeInk;
+      ctx.lineWidth = 0.6;
+      ctx.stroke(web);
+    }
+
     // Painter's algorithm: furthest first, so nearer articles overlap them.
-    const projected = dated
-      .map((p) => ({
-        p,
-        ...project(p.x - meanX, p.y - meanY, ((p.y0 as number) - midYear) * zScale),
-      }))
+    const projected = shown
+      .map((i) => ({ p: laid[i], ...(at.get(i) as { sx: number; sy: number; depth: number; q: number }) }))
       .sort((a, b) => a.depth - b.depth);
 
     /*
@@ -450,7 +564,7 @@ export default function TopicCone({
       doi: i.p.d ?? null,
       review: i.p.r === 1,
     }));
-  }, [dated, all]);
+  }, [shown, laid, all, drawnEdges]);
 
   /*
    * schedule() reaches the current draw through a ref rather than closing over
@@ -650,9 +764,40 @@ export default function TopicCone({
             </button>
           ))}
         </span>
+        {hasGraph && (
+          <span className="flex overflow-hidden rounded-md border border-neutral-300 dark:border-neutral-700 text-[0.7rem]">
+            {(
+              [
+                ["citation", "Citation groups"],
+                ["map", "Map position"],
+              ] as const
+            ).map(([value, name]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setLayout(value);
+                  setPicked(null);
+                }}
+                className={`px-2 py-0.5 transition ${
+                  layout === value
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </span>
+        )}
         <span className="flex flex-wrap items-center gap-3 text-[0.7rem] text-neutral-500 dark:text-neutral-400">
           {dated.length.toLocaleString()} shown
           {years.length > 0 && `, ${Math.min(...years)} to ${Math.max(...years)}`}
+          {byCitation && drawnEdges.length > 0 && (
+            <span>
+              {drawnEdges.length.toLocaleString()} citations, {groupCount} groups
+            </span>
+          )}
           <button
             type="button"
             onClick={() => setSpinning(!spinning)}
