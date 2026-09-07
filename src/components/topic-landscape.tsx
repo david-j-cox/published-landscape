@@ -79,6 +79,7 @@ export function TopicLandscape({
   hiddenJournals,
   yearRange,
   journalColor,
+  resetRef,
 }: {
   cones: Cone[];
   points: Spot[];
@@ -90,6 +91,16 @@ export function TopicLandscape({
   hiddenJournals: Set<number>;
   yearRange: [number, number];
   journalColor: (journalId: number) => string;
+  /**
+   * Somewhere for the map's own Reset view to reach the camera.
+   *
+   * That button lives in the aside, which belongs to the map, and in the field
+   * it was calling a method on a canvas that is not mounted -- so it silently
+   * did nothing. Which mattered: scrolling far enough in puts the camera
+   * inside the geometry and the screen goes dark, and Reset view is the way
+   * out. Without it the only way back was a reload.
+   */
+  resetRef?: { current: (() => void) | null };
 }) {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -445,6 +456,22 @@ export function TopicLandscape({
     if (!spinning) schedule();
   }, [spinning, schedule]);
 
+  const reset = useCallback(() => {
+    yaw.current = START_YAW;
+    pitch.current = START_PITCH;
+    zoom.current = 1;
+    setHover(null);
+    schedule();
+  }, [schedule]);
+
+  useEffect(() => {
+    if (!resetRef) return;
+    resetRef.current = reset;
+    return () => {
+      resetRef.current = null;
+    };
+  }, [resetRef, reset]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -546,12 +573,7 @@ export function TopicLandscape({
         </button>
         <button
           type="button"
-          onClick={() => {
-            yaw.current = START_YAW;
-            pitch.current = START_PITCH;
-            zoom.current = 1;
-            schedule();
-          }}
+          onClick={reset}
           className="underline underline-offset-4 transition hover:text-neutral-900 dark:hover:text-neutral-100"
         >
           Reset view

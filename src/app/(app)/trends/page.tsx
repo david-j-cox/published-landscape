@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { citationGraphAvailable, translationForTopic } from "@/lib/citations";
 import { TopicConeView } from "@/components/topic-cone-view";
 import { coneGraph, conePoints } from "@/lib/cone";
@@ -32,6 +33,14 @@ export default async function TrendsPage({
   const selectedId = topic === undefined ? null : Number(topic);
   const selected =
     selectedId !== null ? (clusters.find((c) => c.id === selectedId) ?? null) : null;
+  /*
+   * This page is what a topic opens into, not somewhere anybody navigates to.
+   * A topic is chosen on the map -- by clicking its cone or its name in the
+   * legend -- so with no topic named there is nothing to show, and the list
+   * that used to live here was a dead end reachable only by deleting the query
+   * string or by a back link that pointed at the wrong place.
+   */
+  if (!selected) redirect("/map");
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -109,7 +118,7 @@ async function SelectedTopic({
           <TopicConeView
             points={conePayload}
             label={label}
-            backHref="/trends"
+            backHref="/map"
             edges={graph?.edges}
             groups={graph?.groups}
             groupCount={graph?.groupCount ?? 0}

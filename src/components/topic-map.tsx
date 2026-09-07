@@ -71,8 +71,14 @@ export function TopicMap({
    * you had got to. The flat map answers what is near what; the field adds
    * when it happened.
    */
-  const [view, setView] = useState<"flat" | "field">("flat");
+  /*
+   * The field opens first. It is the map with time in it, and the flat one is
+   * the special case now rather than the other way round.
+   */
+  const [view, setView] = useState<"flat" | "field">("field");
   const router = useRouter();
+  /** How the aside's Reset view reaches the field's camera. */
+  const fieldReset = useRef<(() => void) | null>(null);
 
   /*
    * The field is derived from the same points the flat map draws, not fetched
@@ -712,6 +718,9 @@ export function TopicMap({
     setYearRange([minYear, maxYear]);
     const canvas = canvasRef.current as (HTMLCanvasElement & { __resetView?: () => void }) | null;
     canvas?.__resetView?.();
+    // The field is a different canvas with its own camera, and in field view
+    // the one above is not even mounted.
+    fieldReset.current?.();
   }
 
   return (
@@ -728,6 +737,7 @@ export function TopicMap({
             hiddenJournals={hiddenJournals}
             yearRange={yearRange}
             journalColor={journalColorOf}
+            resetRef={fieldReset}
           />
         </div>
       ) : (
