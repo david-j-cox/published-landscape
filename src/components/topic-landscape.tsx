@@ -34,6 +34,19 @@ export type Spot = {
   reach: number;
 };
 
+/**
+ * A submission that has been placed but not published.
+ *
+ * The same bearing and distance out of its topic's centre that a Spot
+ * carries, with no year: it stands at the mouth of its cone, which is where
+ * the present is.
+ */
+export type Marker = {
+  cone: number;
+  angle: number;
+  spread: number;
+};
+
 /** Top radius over bottom, as in the single cone, so the two read alike. */
 const TAPER = 2.2;
 /*
@@ -49,6 +62,24 @@ const WIDTH = 1.5;
 const TURN_SECONDS = 90;
 const START_PITCH = -0.45;
 const START_YAW = 0.6;
+
+/** Where a marker stands in model space: the mouth of its cone, at its bearing. */
+function markerAt(cones: Cone[], marker: Marker | null | undefined) {
+  const c = marker ? cones[marker.cone] : undefined;
+  if (!marker || !c) return null;
+  const rr = mouthRadius(c) * marker.spread;
+  return { cone: c, mx: c.cx + Math.cos(marker.angle) * rr, my: c.cy + Math.sin(marker.angle) * rr };
+}
+
+/**
+ * The yaw the field opens at: the one that puts a marker at x1 = 0 with z1
+ * negative in the projection below -- dead centre, nearest the camera -- and
+ * the usual three-quarter view when there is no marker to face.
+ */
+function openingYaw(cones: Cone[], marker: Marker | null | undefined) {
+  const at = markerAt(cones, marker);
+  return at ? Math.atan2(at.mx, at.my) + Math.PI : START_YAW;
+}
 
 /**
  * The field of cones.
@@ -79,6 +110,7 @@ export function TopicLandscape({
   hiddenJournals,
   yearRange,
   journalColor,
+  marker,
   resetRef,
 }: {
   cones: Cone[];
@@ -91,6 +123,8 @@ export function TopicLandscape({
   hiddenJournals: Set<number>;
   yearRange: [number, number];
   journalColor: (journalId: number) => string;
+  /** Where a submission handed over by /submit stands, if there is one. */
+  marker?: Marker | null;
   /**
    * Somewhere for the map's own Reset view to reach the camera.
    *
@@ -103,12 +137,26 @@ export function TopicLandscape({
   resetRef?: { current: (() => void) | null };
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [spinning, setSpinning] = useState(true);
+  /*
+   * Still, and facing the submission, when there is one.
+   *
+   * The camera orbits the origin -- there is no panning to a point the way
+   * the flat map focuses on one -- so the only way to put a mark in front of
+   * the reader is to turn the scene until it is on the near side, and to stop
+   * it turning away again. Someone who has just placed a submission came here
+   * to see where it stands, and a marker two cones deep on the far side is a
+   * marker they will not find. Spin is one click away.
+   *
+   * Set at mount rather than from an effect, which is all that is needed:
+   * the field is unmounted whenever the flat map is showing, so every arrival
+   * into this view is a fresh one.
+   */
+  const [spinning, setSpinning] = useState(!marker);
   const [hover, setHover] = useState<{ label: string; count: number; x: number; y: number } | null>(
     null,
   );
 
-  const yaw = useRef(START_YAW);
+  const yaw = useRef(openingYaw(cones, marker));
   const pitch = useRef(START_PITCH);
   const zoom = useRef(1);
   const drag = useRef<{ yaw: number; pitch: number } | null>(null);
@@ -451,7 +499,77 @@ export function TopicLandscape({
       ctx.fillStyle = labelInk;
       ctx.fillText(label, 12, at);
     }
-  }, [cones, points, minYear, maxYear, colorMode, hiddenClusters, hiddenJournals, yearRange, journalColor]);
+
+    /*
+     * The submission, at the mouth of the topic it landed in.
+     *
+     * Drawn last, over everything, and with a line dropped to the base plane:
+     * a mark floating in a projected scene says how high it is and nothing
+     * about where it stands, and where it stands over the map is the half a
+     * reader came for. Amber and diamond-shaped, as on the flat map.
+     *
+     * Not filtered by the year range -- it has no year to filter on, and a
+     * reader narrowing the range is not asking for their own submission to go
+     * away. Hidden with its topic, though: a marker hanging over a cone that
+     * is no longer drawn would be pointing at nothing.
+     */
+    const at = markerAt(cones, marker);
+    if (at) {
+      const { cone: c, mx, my } = at;
+      if (!hiddenClusters.has(c.clusterId)) {
+        const x = px(mx, my, (maxYear - midYear) * zScale);
+        const y = py(mx, my, (maxYear - midYear) * zScale);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(
+          px(mx, my, (minYear - midYear) * zScale),
+          py(mx, my, (minYear - midYear) * zScale),
+        );
+        ctx.strokeStyle = "rgba(245,158,11,0.55)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        const r = 7;
+        ctx.beginPath();
+        ctx.arc(x, y, r + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(245,158,11,0.5)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y - r);
+        ctx.lineTo(x + r, y);
+        ctx.lineTo(x, y + r);
+        ctx.lineTo(x - r, y);
+        ctx.closePath();
+        ctx.fillStyle = isDark ? "#fbbf24" : "#18181b";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = isDark ? "#18181b" : "#fbbf24";
+        ctx.stroke();
+
+        ctx.textAlign = "center";
+        ctx.font = "700 11px ui-sans-serif, system-ui, sans-serif";
+        const text = "Your submission";
+        const wide = ctx.measureText(text).width;
+        ctx.fillStyle = isDark ? "rgba(10,10,10,0.88)" : "rgba(250,250,250,0.88)";
+        // Hand-rolled rather than roundRect, as the flat map's pill is: this
+        // canvas still has to draw on Safari 16.3.
+        const bx = x - wide / 2 - 6;
+        const by = y - r - 8 - 12;
+        const bw = wide + 12;
+        ctx.beginPath();
+        ctx.moveTo(bx + 5, by);
+        ctx.arcTo(bx + bw, by, bx + bw, by + 18, 5);
+        ctx.arcTo(bx + bw, by + 18, bx, by + 18, 5);
+        ctx.arcTo(bx, by + 18, bx, by, 5);
+        ctx.arcTo(bx, by, bx + bw, by, 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = isDark ? "#fbbf24" : "#18181b";
+        ctx.fillText(text, x, y - r - 8);
+      }
+    }
+  }, [cones, points, minYear, maxYear, colorMode, hiddenClusters, hiddenJournals, yearRange, journalColor, marker]);
 
   const drawRef = useRef(draw);
   useEffect(() => {
