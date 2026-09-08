@@ -20,7 +20,7 @@ import {
 } from "@/lib/map-colors";
 import type { ArticleDetail, Cluster, Journal, MapPoint, PendingPlacement } from "@/lib/types";
 import { YearRangeSlider } from "@/components/year-range-slider";
-import { TopicLandscape, type Cone, type Spot } from "@/components/topic-landscape";
+import { TopicLandscape, type Cone, type Marker, type Spot } from "@/components/topic-landscape";
 
 const MODES = ["topic", "journal", "reach"] as const;
 
@@ -211,6 +211,27 @@ export function TopicMap({
   // React's render cycle and can't depend on state directly (see the sync
   // effect below, same pattern as hiddenClusters/hiddenRef).
   const pendingRef = useRef<PendingMarker | null>(null);
+  /*
+   * The same submission, for the field.
+   *
+   * The flat map draws it at its own x and y, but a cone is drawn from a
+   * bearing and a distance out of its topic's centre, so the placement has to
+   * be resolved the way its neighbours were. It has no year, so the field
+   * stands it at the mouth.
+   */
+  const fieldMarker = useMemo<Marker | null>(() => {
+    if (!pending) return null;
+    const cone = field.cones.findIndex((c) => c.clusterId === pending.point.cluster_id);
+    if (cone < 0) return null;
+    const c = field.cones[cone];
+    const dx = pending.point.x - c.cx;
+    const dy = pending.point.y - c.cy;
+    return {
+      cone,
+      angle: Math.atan2(dy, dx),
+      spread: Math.min(1, Math.hypot(dx, dy) / (c.radius || 1)),
+    };
+  }, [pending, field]);
 
   const viewRef = useRef<View>({ scale: 1, ox: 0, oy: 0 });
   const fitRef = useRef<View>({ scale: 1, ox: 0, oy: 0 });
@@ -609,7 +630,11 @@ export function TopicMap({
     ) => {
       const fit = fitRef.current.scale;
       const scale = Math.min(fit * 12, fit * 2.5);
-      const panelW = W() >= 768 ? 448 : 0;
+      // Only when the panel is actually open: coming back to the flat map
+      // with a placement still on it refocuses with nothing covering the left
+      // side, and offsetting for a panel that is not there pushes the mark
+      // off to the right for no reason.
+      const panelW = W() >= 768 && selectedRef.current ? 448 : 0;
       viewRef.current.scale = scale;
       viewRef.current.ox = panelW + (W() - panelW) / 2 - wx * scale;
       viewRef.current.oy = H() / 2 + wy * scale;
@@ -683,6 +708,17 @@ export function TopicMap({
       // there's no async boundary to defer these through.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPending(marker);
+      /*
+       * And show it on the flat map, whatever the reader was last looking at.
+       *
+       * The field opens by default, and a placement arriving into it was a
+       * submission that simply did not appear: the field draws cones, the
+       * marker was drawn by the flat canvas, and that canvas is not even
+       * mounted in field view. The flat map is also the view that can answer
+       * the question /submit asks -- what is this near -- by zooming to the
+       * point. The field has it too now, one toggle away.
+       */
+      setView("flat");
       selectedRef.current = marker.point;
       setSelected(marker.point);
     } catch {
@@ -708,7 +744,13 @@ export function TopicMap({
     } else {
       canvas?.__redraw?.();
     }
-  }, [pending]);
+    /*
+     * Re-run on the view as well: coming back to the flat map refits the
+     * camera to the whole corpus, so a submission that is still placed has to
+     * be found again. In field view there is no canvas here and these are
+     * no-ops.
+     */
+  }, [pending, view]);
 
   useEffect(() => {
     if (!selected || selected.id === PENDING_ID) return;
@@ -796,6 +838,7 @@ export function TopicMap({
             hiddenJournals={hiddenJournals}
             yearRange={yearRange}
             journalColor={journalColorOf}
+            marker={fieldMarker}
             resetRef={fieldReset}
           />
         </div>
