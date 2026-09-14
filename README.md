@@ -12,7 +12,7 @@ expertise instead of by memory.
 ## Where the literature comes from
 
 Since 3 September 2026 this app reads its corpus from the Writer's Trellis
-database (the `thesis-scaffold` project) rather than from files in `data/`.
+database (the `writers-trellis` project) rather than from files in `data/`.
 That project forked the pipeline below and kept going: 46,000 articles across
 35 years and 22 journals, vectors in pgvector, and the citation edges from
 every review in the corpus. The two apps now share one corpus, rebuilt every
@@ -21,7 +21,7 @@ there can be brought here without a data port.
 
 The app connects as `corpus_reader`, a role that can `SELECT` from the six
 `corpus_*` tables and reach nothing else (see
-`thesis-scaffold/scripts/create-corpus-reader.sql`). Set `CORPUS_DATABASE_URL`
+`writers-trellis/scripts/create-corpus-reader.sql`). Set `CORPUS_DATABASE_URL`
 to that role's pooled Neon connection string. Two optional variables narrow
 what is shown without changing what is stored: `CORPUS_YEARS_BACK` keeps the
 last N years (default 10, the window this app always had) and
@@ -31,12 +31,16 @@ the seven developmental-disability and autism journals the Trellis corpus
 carries for review searches). `all` on either shows everything in the corpus.
 
 `src/lib/data.ts` and `src/lib/placement.ts` are the only files that query it.
-Placement projects a manuscript with the model row in `corpus_model` and asks
-pgvector for the nearest articles; the math is unchanged from the in-memory
-version.
+Placement embeds a manuscript with the same model that embedded the corpus
+(`src/lib/embed.ts`, run inside the function, so the text goes nowhere else)
+and asks pgvector for the nearest articles. See [How the topic model is
+built](#how-the-topic-model-is-built) and [The query
+embedder](#the-query-embedder).
 
 The pipeline scripts in `scripts/` and the files in `data/` remain for the
-static GitHub Pages demo, which has no database. They no longer feed the app.
+static GitHub Pages demo, which has no database. They no longer feed the app,
+though `build_layout.py`'s labeller and island layout are what the Trellis
+pipeline still calls to name and draw the clusters.
 
 Previous corpus, still used by the demo: **7,692 articles**, **93.1% with a
 real abstract**, **14 journals**, **52 topics**, **12,670 authors**.
@@ -112,22 +116,21 @@ flowchart TB
     GH -. redeploys .-> Demo
 ```
 
-And what happens on a single `/submit` request - the frozen model from the
-pipeline above gets reused rather than recomputed:
+The diagram above is the demo's pipeline. The app itself reads the Trellis
+database, and a single `/submit` request goes like this:
 
 ```mermaid
 sequenceDiagram
     participant U as Browser
     participant API as /api/place
-    participant M as data/model.json
-    participant C as data/corpus.json
+    participant M as models/ (in the function)
+    participant DB as corpus_article (pgvector)
 
     U->>U: Paste title/abstract<br/>(or extract PDF text locally - never uploaded)
     U->>API: POST title + abstract
-    API->>M: Load frozen vocab, IDF,<br/>SVD matrix, article vectors, centroids
-    API->>API: Tokenize, build TF-IDF vector,<br/>project via SVD into a new 60-dim vector
-    API->>C: Cosine similarity vs all 7,692<br/>existing article vectors
-    API->>API: Nearest neighbors, cluster vote,<br/>weighted x/y, reviewer ranking
+    API->>M: Embed "title. abstract" with the<br/>fine-tuned MiniLM, 384 numbers
+    API->>DB: Nearest vectors by cosine distance<br/>(HNSW index over embedding_st)
+    API->>API: Cluster vote, weighted x/y within<br/>that cluster, reviewer ranking
     API-->>U: neighbors + reviewers + cluster + x/y
     U->>U: Show results, with an optional marker on /map
 ```
@@ -176,7 +179,38 @@ topic model every Monday and commits the result if anything changed, which
 in turn redeploys the static demo. New online-first articles are typically
 indexed by OpenAlex/Crossref within a few days of publication.
 
-## How the topic model was built
+## How the topic model is built
+
+Since 13 September 2026 the map is built in the Trellis repository over
+vectors from a neural sentence embedding model, and the description below of
+`build_layout.py` is the demo's pipeline and the app's history.
+
+1. **Embedding**: each article's "title. abstract" (title alone where there
+   is no abstract) goes through all-MiniLM-L6-v2 fine-tuned on the corpus's
+   own citation graph - review articles paired with what they cite, with the
+   hardest look-alikes mined as negatives - and comes out as 384 numbers in
+   `corpus_article.embedding_st`. On 437 held-out review articles, asked to
+   find what each cites among 97,016 candidates, it scores recall@50 of
+   0.344 against 0.308 for the untrained model and 0.101 for the TF-IDF
+   projection it replaced. Cosine distance on those vectors is what
+   "related" means everywhere in the app.
+2. **Clustering**: k-means over the vectors (`corpus-pipeline/layout.py`
+   there), 44 groups, four random starts, keeping the tightest.
+3. **Labels**: `build_layout.py`'s labeller, unchanged - mean in-cluster
+   TF-IDF minus mean out-of-cluster, so a topic is named by what separates
+   it rather than by the background vocabulary.
+4. **Layout**: `build_layout.py`'s two-level island layout, unchanged, driven
+   by the frozen vectors. UMAP was tried and drew the field as one connected
+   ribbon, which is true of it and unreadable when every tool treats a
+   cluster as a thing with edges.
+
+The layout is frozen: `corpus_space.layout_version` names it, every placed
+article carries the version its coordinates belong to, and the weekly job
+embeds each new article and places it among its nearest already-placed
+neighbours without moving anything. A rebuild is run by hand and bumps the
+version.
+
+### The demo's pipeline, and the app's until September 2026
 
 `scripts/build_layout.py` turns the corpus into a topic map in four steps:
 
@@ -213,32 +247,63 @@ pure NumPy/SciPy - see `scripts/build_layout.py` for the exact math.
 
 ## How a new submission gets placed
 
-`/submit` doesn't re-run the pipeline above - the fitted model (vocabulary,
-IDF weights, the SVD projection matrix, every existing article's 60-dim
-vector, and each cluster's centroid) is frozen into `data/model.json` when
-`build_layout.py` runs, and `src/lib/placement.ts` reuses it:
+`/submit` doesn't re-run the pipeline above. `src/lib/placement.ts`:
 
-1. Tokenize the submitted title/abstract the same way the corpus was
-   tokenized, build a TF-IDF vector over the *existing* frozen vocabulary
-   (no re-fitting), and project it through the *existing* frozen SVD matrix
-   to get a 60-dim vector in the same space as everything else.
-2. Cosine-similarity that vector against all 7,692 existing article vectors
-   (a few thousand dot products - milliseconds, no retraining).
-3. Assign a topic by similarity-weighted majority vote among the nearest
+1. Embeds the submitted "title. abstract" with the same fine-tuned model
+   that embedded the corpus (`src/lib/embed.ts`), inside the function.
+   `corpus_space.embedder` records which model the corpus's vectors came
+   from and `EMBEDDER` in `embed.ts` names the one this build carries; when
+   they differ the search falls back to the TF-IDF projection in
+   `corpus_model`, with a line in the server log, rather than comparing a
+   query from one model against vectors from another.
+2. Asks pgvector for the nearest stored vectors by cosine distance, with
+   `hnsw.ef_search` raised for the transaction so a journal-and-year filter
+   still has candidates left after the index has done its part.
+3. Assigns a topic by similarity-weighted majority vote among the nearest
    neighbors (not nearest cluster centroid - centroid similarity can point
    to a different cluster than where the actual nearest articles sit,
    which read as inconsistent next to the neighbor list shown alongside it).
-4. Approximate a map position as a similarity-weighted average of the
-   nearest neighbors' real x/y coordinates (no full re-layout).
-5. Build the reviewer list from a wider pool (~30 neighbors): sum each
+4. Approximates a map position as a similarity-weighted average of the
+   nearest neighbors' real x/y coordinates, restricted to neighbours in the
+   assigned cluster: the islands are not a metric space, and averaging
+   across them put the marker outside its own cluster 39% of the time.
+5. Builds the reviewer list from a wider pool (~30 neighbors): sum each
    co-author's similarity across every one of their papers in that pool, so
    someone with two decent matches can outrank someone with one great one.
 
 Nothing is persisted - it's a stateless request/response, and the PDF (if
 used) never leaves the browser; only the extracted/edited text is sent.
-This math was checked before shipping by re-projecting a real, already-
-published article's own text through the pipeline and confirming it
-reproduced that article's own precomputed nearest neighbors exactly.
+
+### The query embedder
+
+The weights are a fine-tune trained in the Trellis repository and published
+nowhere, and this repository is public, so they are not in git. `models/` is
+gitignored and `scripts/fetch-model.mjs` fills it before every build
+(`prebuild`) from a private URL:
+
+| variable | what |
+|---|---|
+| `EMBEDDER_MODEL_URL` | a `.tar.gz` of the `trellis-minilm-cite` directory, as `tar czf model.tar.gz -C models trellis-minilm-cite` makes it |
+| `EMBEDDER_MODEL_TOKEN` | optional; sent as a bearer token |
+
+Both are build-time variables on Vercel, and a Vercel build without the
+weights fails rather than deploying a function that answers every placement
+with an error. Whatever put the files there, the script checks the weights'
+hash against the model the corpus was embedded with; when the corpus is
+re-embedded, that hash and `EMBEDDER` change together. `next.config.ts`
+traces `models/` into the `/api/place` function, and it is deliberately not
+under `public/`, which is served to the open internet.
+
+A laptop with the Trellis checkout beside this one needs no download:
+
+```bash
+mkdir -p models && ln -s ../../writers-trellis/models/trellis-minilm-cite models/trellis-minilm-cite
+npm run check:embedder
+```
+
+The check loads the model offline, then, with `CORPUS_DATABASE_URL` set,
+confirms `corpus_space` names the same model and that the nearest article to
+a test phrase is about it.
 
 ## Static demo
 

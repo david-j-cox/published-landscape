@@ -30,7 +30,7 @@ import { scope, sql } from "@/lib/corpus-db";
  * Whether corpus_citation can be read at all.
  *
  * The corpus_reader role is granted table by table, deliberately, so a new
- * table does not join the list by accident (thesis-scaffold's
+ * table does not join the list by accident (writers-trellis's
  * scripts/create-corpus-reader.sql). The GRANT for corpus_citation was added
  * to that script on 3 September, after the role was first provisioned here,
  * so a deployment can be pointed at a corpus whose graph it cannot select

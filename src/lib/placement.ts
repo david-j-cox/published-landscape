@@ -7,16 +7,23 @@ import { institutionsByAuthor, labsNear } from "@/lib/labs";
 import type { ArticleAuthor, CandidateReviewer, Labs, PlacementNeighbor } from "@/lib/types";
 
 /*
- * Projects a new title/abstract into the same TF-IDF -> SVD latent space the
- * corpus was built in, then asks pgvector for the nearest articles.
+ * Embeds a new title/abstract into the space the corpus is embedded in, then
+ * asks pgvector for the nearest articles.
  *
- * The math is the one build_layout.py uses and the one this file always had:
- * sublinear term frequency, the corpus IDF, L2 normalization, the SVD
- * components. What changed on 2026-09-03 is where the other side of the
- * comparison lives. The 46,000 article vectors used to be a 40 MB JSON file
- * held in memory and scanned with a dot product per request; they are now a
- * pgvector column with an index, and the model that projects a query into
- * their space is one row in corpus_model, read once per process.
+ * Two spaces are here. The frozen one is corpus_article.embedding_st, written
+ * by corpus-pipeline/embed_corpus.py in the Trellis repository with the model
+ * src/lib/embed.ts names, and since 2026-09-13 the map's coordinates and
+ * clusters are built over those same vectors (that repository's
+ * corpus-pipeline/layout.py), so a query, its neighbours and the marker all
+ * agree on what "near" means. The older one is the TF-IDF -> SVD projection
+ * build_layout.py made, one row in corpus_model: it still supplies the
+ * vocabulary-match count that says whether there is enough text to place, and
+ * it is the space searched when corpus_space names a model this build does
+ * not carry, so a mismatch degrades search rather than breaking it.
+ *
+ * The 46,000 article vectors used to be a 40 MB JSON file held in memory and
+ * scanned with a dot product per request; since 2026-09-03 they are a pgvector
+ * column with an index.
  */
 
 interface Model {
@@ -41,7 +48,8 @@ function loadModel() {
     const embedder = space?.embedder ?? null;
     if (embedder && embedder !== EMBEDDER) {
       console.error(
-        `[placement] corpus_space names ${embedder} but this build embeds with ${EMBEDDER}; using the TF-IDF projection`,
+        `[placement] corpus_space names ${embedder} but this build embeds with ${EMBEDDER}; ` +
+          `searching the TF-IDF projection instead. Both sides change together: see src/lib/embed.ts.`,
       );
     }
     const model: Model = {
@@ -87,6 +95,15 @@ export function queryText(title: string, abstract: string): string {
   const body = abstract.trim();
   const titleWeight = body ? 1 : 3;
   return `${`${title} `.repeat(titleWeight)}${body}`;
+}
+
+/** The text embed_corpus.py embedded for each article, "title. abstract", or
+ *  the title alone when there is no abstract. The frozen space was built over
+ *  that form, so a submission is embedded in it too. queryText's tripled title
+ *  is a term-counting device that means nothing to a sentence model. */
+export function embedText(title: string, abstract: string): string {
+  const body = abstract.trim();
+  return body ? `${title.trim()}. ${body}` : title.trim();
 }
 
 function projectToLatent(
@@ -136,11 +153,6 @@ function iterativeScanAvailable(): Promise<boolean> {
     return false;
   });
   return iterativePromise;
-}
-
-export async function getModelStats(): Promise<{ vocabSize: number; svdDims: number }> {
-  const { model } = await loadModel();
-  return { vocabSize: model.vocab.length, svdDims: model.dims };
 }
 
 export type PlacementResult = {
@@ -225,7 +237,7 @@ export async function placeArticle(
   // whichever space is searched; the vector itself comes from the frozen
   // space when the corpus has one.
   const { latent, matchedTermCount } = projectToLatent(title, abstract, model, vocabIndex);
-  const vec = JSON.stringify(model.embedder ? await embedQuery(queryText(title, abstract)) : latent);
+  const vec = JSON.stringify(model.embedder ? await embedQuery(embedText(title, abstract)) : latent);
   const column = model.embedder ? sql`embedding_st` : sql`embedding`;
   const { where: inScope } = await scope();
 

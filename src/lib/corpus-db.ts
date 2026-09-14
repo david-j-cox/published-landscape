@@ -5,7 +5,7 @@ import postgres from "postgres";
  * The literature, read from the Writer's Trellis database.
  *
  * Until 2026-09-03 this app carried its own corpus in data/corpus.json and
- * data/model.json, built by scripts/ here. The thesis-scaffold project forked
+ * data/model.json, built by scripts/ here. The writers-trellis project forked
  * that pipeline and outran it: 46,000 articles across 35 years against 7,700
  * across 10, vectors in pgvector instead of in memory, and the citation edges
  * from every review in the corpus. Rather than port each new feature onto the
