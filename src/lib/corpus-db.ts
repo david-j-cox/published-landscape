@@ -143,6 +143,9 @@ const DEFAULT_JOURNALS = [
   "0145-4455", // Behavior Modification
   "1543-4494", // Learning & Behavior
   "2329-8456", // Journal of Experimental Psychology: Animal Learning and Cognition
+  // Added to the shared corpus on 2026-09-14. Contextual behavioral science is
+  // the field's own clinical side, so its authors belong in the reviewer pool.
+  "2212-1447", // Journal of Contextual Behavioral Science
 ];
 
 let journalScope: Promise<number[] | null> | null = null;
