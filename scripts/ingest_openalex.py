@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fetch the last 10 years of articles for the target journals from OpenAlex.
 
-OpenAlex is free, keyless, and covers all these journals well enough for a
+OpenAlex is free, works without a key, and covers all these journals well enough for a
 v1 corpus (see JOURNALS below for per-journal abstract-availability notes -
 the Springer-published ones have thin abstract coverage here and rely on
 scripts/enrich_missing_abstracts.py to backfill from PubMed/Springer Meta).
@@ -87,10 +87,17 @@ def from_date_iso():
     return d.replace(year=d.year - YEARS_BACK).isoformat()
 
 
+# Optional. Since Oct 2026 OpenAlex refuses cursor paging without a key, so
+# paging is by page number, which stays keyless up to 10,000 results per
+# query - far more than any one journal publishes in YEARS_BACK.
+API_KEY = os.environ.get("OPENALEX_API_KEY")
+PAGE_LIMIT = 10_000
+
+
 def fetch_all(source_id: str):
     works = []
-    cursor = "*"
-    while cursor:
+    page = 1
+    while True:
         params = (
             f"filter=primary_location.source.id:{source_id},"
             f"from_publication_date:{from_date_iso()},"
@@ -99,29 +106,38 @@ def fetch_all(source_id: str):
             # letters - not substantive articles, and their near-empty titles
             # otherwise collapse into degenerate single-item topic clusters.
             f"type:article|review"
-            f"&select={SELECT}&per_page=200&cursor={cursor}&mailto={CONTACT_EMAIL}"
+            f"&select={SELECT}&per_page=200&page={page}&mailto={CONTACT_EMAIL}"
         )
+        if API_KEY:
+            params += f"&api_key={API_KEY}"
         url = f"{API}?{params}"
         for attempt in range(5):
             try:
                 # This Python install's SSL trust store is unreliable in this
                 # environment; curl uses the system trust store and works.
+                # --fail-with-body keeps OpenAlex's error message, which says
+                # why a request was refused; plain -f discards it.
                 result = subprocess.run(
-                    ["curl", "-fsS", "--max-time", "30", url],
+                    ["curl", "-sS", "--fail-with-body", "--max-time", "30", url],
                     capture_output=True, check=True,
                 )
                 payload = json.loads(result.stdout.decode("utf-8"))
                 break
             except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+                body = getattr(e, "stdout", b"") or b""
+                detail = body.decode("utf-8", "replace")[:300] or str(e)
                 if attempt == 4:
-                    raise
-                print(f"  retry ({e}) in {2 ** attempt}s", file=sys.stderr)
+                    sys.exit(f"OpenAlex request failed: {detail}")
+                print(f"  retry ({detail}) in {2 ** attempt}s", file=sys.stderr)
                 time.sleep(2 ** attempt)
+        count = payload["meta"]["count"]
+        if count > PAGE_LIMIT:
+            sys.exit(f"{source_id} has {count} works, past OpenAlex's page-paging limit")
         works.extend(payload["results"])
-        cursor = payload.get("meta", {}).get("next_cursor")
-        print(f"  fetched {len(works)}/{payload['meta']['count']}", file=sys.stderr)
-        if not payload["results"]:
+        print(f"  fetched {len(works)}/{count}", file=sys.stderr)
+        if not payload["results"] or len(works) >= count:
             break
+        page += 1
     return works
 
 

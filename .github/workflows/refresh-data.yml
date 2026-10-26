@@ -29,6 +29,9 @@ jobs:
           python-version: "3.12"
       - run: pip install numpy scipy requests
       - run: python3 scripts/ingest_openalex.py
+        env:
+          # Optional; the script pages without one. Unset secrets expand to "".
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
       - name: Backfill missing abstracts
         env:
           SPRINGER_META_API_KEY: ${{ secrets.SPRINGER_META_API_KEY }}
