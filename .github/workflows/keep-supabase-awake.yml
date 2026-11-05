@@ -1,0 +1,31 @@
+name: Keep Supabase awake
+
+on:
+  schedule:
+    # Free-tier projects pause after 7 days without activity, and the whole
+    # site sits behind Supabase auth (src/lib/supabase/session.ts). The Monday
+    # refresh only touches the corpus, and scheduled runs start hours late, so
+    # this runs on its own every 3 days to leave room for delays and a failure.
+    - cron: "17 6 */3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      # A real database read rather than a health check, which may not count as
+      # activity. RLS hides journals from anon, hence the service-role key. A
+      # failed run emails the repo owner, which doubles as an early warning.
+      - name: Read one row from journals
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          curl --fail --silent --show-error --output /dev/null \
+            --retry 4 --retry-delay 30 --retry-all-errors --max-time 30 \
+            --header "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            --header "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            "$SUPABASE_URL/rest/v1/journals?select=id&limit=1"
